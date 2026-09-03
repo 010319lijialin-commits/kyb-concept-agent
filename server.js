@@ -12,10 +12,20 @@ const BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').re
 const API_KEY = process.env.OPENAI_API_KEY;
 const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL || 'gpt-4o-transcribe';
 const REVIEW_MODEL = process.env.REVIEW_MODEL || 'gpt-4o';
+const ACCESS_CODE = (process.env.ACCESS_CODE || '').trim();
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// 部署到公网后，没有这道门任何拿到链接的人都能花你的 OpenAI 额度。
+// 本地不设 ACCESS_CODE 就自动放行。
+function gate(req, res, next) {
+  if (!ACCESS_CODE) return next();
+  const given = req.get('x-access-code') || '';
+  if (given !== ACCESS_CODE) return res.status(401).json({ error: '访问码不对' });
+  next();
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -53,13 +63,14 @@ async function openai(pathname, init) {
 app.get('/api/config', (_req, res) => {
   res.json({
     hasKey: Boolean(API_KEY),
+    needsCode: Boolean(ACCESS_CODE),
     transcribeModel: TRANSCRIBE_MODEL,
     reviewModel: REVIEW_MODEL,
     structures: STRUCTURES,
   });
 });
 
-app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/api/transcribe', gate, upload.single('audio'), async (req, res) => {
   if (!requireKey(res)) return;
   if (!req.file) return res.status(400).json({ error: '没收到音频' });
 
@@ -121,7 +132,7 @@ ${structuresForPrompt()}
   "next_prompt": "针对他薄弱点的下一道练习题，一句话"
 }`;
 
-app.post('/api/review', async (req, res) => {
+app.post('/api/review', gate, async (req, res) => {
   if (!requireKey(res)) return;
   const { text, scene, targetStructureId, previousText } = req.body || {};
   if (!text || !text.trim()) return res.status(400).json({ error: '没有可复盘的文本' });
@@ -166,7 +177,7 @@ app.post('/api/review', async (req, res) => {
 });
 
 // 长期分析：把历史记录喂回去，找反复出现的毛病
-app.post('/api/analyze', async (req, res) => {
+app.post('/api/analyze', gate, async (req, res) => {
   if (!requireKey(res)) return;
   const { sessions = [], notes = [] } = req.body || {};
   if (!sessions.length && !notes.length) {

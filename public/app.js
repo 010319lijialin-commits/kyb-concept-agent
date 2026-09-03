@@ -11,6 +11,7 @@ const state = {
   noteType: NOTE_TYPES[0],
   previousText: '',   // 「再练一次」时带上一版做对比
   lastAudioUrl: '',
+  needsCode: false,
 };
 
 /* ---------------- 存储 ---------------- */
@@ -38,6 +39,32 @@ function toast(msg) {
   toastTimer = setTimeout(() => (el.hidden = true), 2600);
 }
 
+/* ---------------- 带访问码的请求 ---------------- */
+// 部署到公网时服务端会开 ACCESS_CODE，第一次用要输一次，之后记在本机。
+function askCode(msg) {
+  const code = (window.prompt(msg || '请输入访问码') || '').trim();
+  if (code) localStorage.setItem('xp.code', code);
+  return code;
+}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (state.needsCode) {
+    const code = localStorage.getItem('xp.code') || askCode();
+    if (!code) throw new Error('需要访问码');
+    headers['x-access-code'] = code;
+  }
+  const r = await fetch(path, { ...opts, headers });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) {
+    localStorage.removeItem('xp.code');
+    askCode('访问码不对，再输一次');
+    throw new Error('访问码不对，重试一次');
+  }
+  if (!r.ok) throw new Error(data.error || `请求失败（${r.status}）`);
+  return data;
+}
+
 /* ---------------- 导航 ---------------- */
 $$('.tab').forEach((btn) => {
   btn.onclick = () => {
@@ -61,6 +88,7 @@ $$('.seg-btn').forEach((btn) => {
 async function initStructures() {
   const cfg = await fetch('/api/config').then((r) => r.json());
   state.structures = cfg.structures || [];
+  state.needsCode = Boolean(cfg.needsCode);
   if (!cfg.hasKey) toast('服务端没配 OPENAI_API_KEY');
 
   const sel = $('#structure');
@@ -142,9 +170,7 @@ async function transcribe(blob, type) {
     const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
     const fd = new FormData();
     fd.append('audio', blob, `speech.${ext}`);
-    const r = await fetch('/api/transcribe', { method: 'POST', body: fd });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || '转写失败');
+    const data = await api('/api/transcribe', { method: 'POST', body: fd });
     $('#transcript').value = data.text || '';
     if (!data.text) toast('没听清，再说一遍？');
   } catch (err) {
@@ -164,7 +190,7 @@ $('#review-btn').onclick = async () => {
   btn.disabled = true;
   btn.textContent = '复盘中…';
   try {
-    const r = await fetch('/api/review', {
+    const data = await api('/api/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -174,8 +200,6 @@ $('#review-btn').onclick = async () => {
         previousText: state.previousText,
       }),
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || '复盘失败');
 
     const session = {
       id: crypto.randomUUID(),
@@ -409,13 +433,11 @@ $('#analyze-btn').onclick = async () => {
   btn.disabled = true;
   btn.textContent = '分析中…';
   try {
-    const r = await fetch('/api/analyze', {
+    const data = await api('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessions: load(KEY.sessions), notes: load(KEY.notes) }),
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || '分析失败');
     renderAnalysis(data.analysis);
   } catch (err) {
     toast(err.message);

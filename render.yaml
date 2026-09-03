@@ -1,0 +1,17 @@
+# Render 蓝图：连上这个仓库后会自动读这个文件建服务。
+# OPENAI_API_KEY 和 ACCESS_CODE 标了 sync:false，需要在 Render 面板里手填，不会进仓库。
+services:
+  - type: web
+    name: expression-practice
+    runtime: node
+    plan: free
+    region: singapore
+    branch: claude/expression-practice-app-mvp-mq9bse
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ACCESS_CODE
+        sync: false

@@ -4,6 +4,9 @@
   "private": true,
   "description": "表达练习 MVP：录音 -> 转写 -> 结构化复盘 -> 记录",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"

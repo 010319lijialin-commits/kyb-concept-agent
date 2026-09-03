@@ -25,19 +25,50 @@
 - **条件反射训练**：触发信号 + 开口第一句 + 一句口诀
 - **再说一遍**：同一话题用目标结构重录，模型会对比两版的进步
 
-## 跑起来
+## 怎么在手机上用
+
+这不是一个现成的网站，是你自己跑的服务。要在手机上用，得先让它有个 **https 地址**——
+浏览器只在 https 或 localhost 下才给麦克风权限，手机直连内网 IP（http）录音一定失败。
+
+### 方案 A：部署一次，以后随时用（推荐）
+
+用 [Render](https://render.com) 免费套餐，仓库里已经放好 `render.yaml`：
+
+1. Render → New → Blueprint → 选这个仓库，它会自动读 `render.yaml`
+2. 填两个环境变量：`OPENAI_API_KEY`（你的 key）、`ACCESS_CODE`（自己编一个访问码）
+3. 部署完拿到 `https://xxx.onrender.com`，手机浏览器打开，输一次访问码
+
+然后**添加到主屏幕**（iOS：Safari 分享 → 添加到主屏幕；Android Chrome：菜单 → 安装应用），
+图标和全屏都配好了，用起来跟原生 app 一样。
+
+> 免费套餐 15 分钟没人访问会休眠，下次打开要等 30 秒左右冷启动。
+
+Railway、Fly.io、Zeabur 这类支持 Node 的平台同理，命令就是 `npm install` + `npm start`。
+
+### 方案 B：先在电脑上跑，开个临时隧道试试（5 分钟）
 
 ```bash
 npm install
 cp .env.example .env    # 填上 OPENAI_API_KEY
 npm start               # http://localhost:3000
+
+# 另开一个终端，把本地服务映射成一个临时 https 地址
+npx localtunnel --port 3000
 ```
 
-手机上打开：跟电脑连同一个 Wi-Fi，访问 `http://<电脑内网 IP>:3000`。
+手机打开它给的 `https://xxx.loca.lt` 就能录音。关掉终端地址就失效，适合先试试值不值得部署。
 
-> ⚠️ 浏览器只在 **https 或 localhost** 下给麦克风权限。手机用 http 访问内网 IP 时录音按钮会失败，
-> 这时可以直接在输入框里手打文字复盘。想在手机上真正录音，用 `npx localtunnel --port 3000`
-> 或 ngrok 之类开个 https 隧道，或者部署到任意支持 Node 的平台。
+### 方案 C：只在电脑上用
+
+`npm start` 之后开 `http://localhost:3000`，录音直接可用，不用任何隧道。
+
+> 任何时候都可以不录音，直接在输入框手打文字复盘——转写只是省事，不是必需。
+
+## 访问码
+
+设了 `ACCESS_CODE` 之后，三个 AI 接口都要带对应的 header 才放行；前端第一次会弹一次输入框，
+之后记在这台设备上。**部署到公网一定要设**，否则谁拿到链接都能花你的 OpenAI 额度。
+本地不设就自动放行。
 
 ## 配置
 
@@ -47,6 +78,7 @@ npm start               # http://localhost:3000
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 换 OpenAI 兼容网关时改这里 |
 | `TRANSCRIBE_MODEL` | `gpt-4o-transcribe` | 也可以用 `whisper-1` |
 | `REVIEW_MODEL` | `gpt-4o` | 复盘和长期分析共用 |
+| `ACCESS_CODE` | 空 | 公网部署必设；留空则不校验 |
 | `PORT` | `3000` | |
 
 ## 数据存哪
@@ -60,7 +92,8 @@ npm start               # http://localhost:3000
 ```
 server.js       Express，三个接口：/api/transcribe /api/review /api/analyze，兼作 OpenAI 代理
 structures.js   表达结构库（id / 触发信号 / 槽位 / 口诀），复盘 prompt 和结构卡共用同一份
-public/         无构建的单页前端：index.html + app.js + style.css
+public/         无构建的单页前端：index.html + app.js + style.css + PWA 图标和 manifest
+render.yaml     Render 部署蓝图
 ```
 
 要加新结构，只改 `structures.js` 一个文件，前后端会同时生效。
