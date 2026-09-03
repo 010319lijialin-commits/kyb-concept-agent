@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#0f172a" />
+<title>表达练习</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<main id="app">
+
+  <!-- ============ 练习 ============ -->
+  <section class="page" id="page-practice">
+    <header class="hdr">
+      <h1>练习</h1>
+      <p class="sub">开口说，然后看结构对不对。</p>
+    </header>
+
+    <div class="card">
+      <label class="lbl">场景（可留空）</label>
+      <input id="scene" class="inp" placeholder="例如：跟老板汇报这周进度" />
+
+      <label class="lbl">想练的结构</label>
+      <select id="structure" class="inp"></select>
+      <p class="hint" id="structure-hint"></p>
+    </div>
+
+    <div class="card recorder">
+      <button id="rec-btn" class="rec" type="button"><span class="dot"></span><span id="rec-label">开始录音</span></button>
+      <div class="timer" id="timer">00:00</div>
+      <audio id="playback" controls hidden></audio>
+    </div>
+
+    <div class="card">
+      <label class="lbl">你说了什么<span class="lbl-tip">（可直接改，也可以手打）</span></label>
+      <textarea id="transcript" class="inp ta" rows="6" placeholder="录完自动填在这里…"></textarea>
+      <button id="review-btn" class="primary" type="button">复盘这段表达</button>
+    </div>
+
+    <div id="feedback"></div>
+  </section>
+
+  <!-- ============ 记录 ============ -->
+  <section class="page" id="page-log" hidden>
+    <header class="hdr">
+      <h1>记录</h1>
+      <p class="sub">练习历史 + 每天的灵感、原则、知识点。</p>
+    </header>
+
+    <div class="seg">
+      <button class="seg-btn on" data-log="notes" type="button">笔记</button>
+      <button class="seg-btn" data-log="sessions" type="button">练习</button>
+    </div>
+
+    <div id="log-notes">
+      <div class="card">
+        <div class="chips" id="note-types"></div>
+        <textarea id="note-input" class="inp ta" rows="3" placeholder="今天想到 / 学到 / 记住什么？"></textarea>
+        <button id="note-save" class="primary" type="button">记下来</button>
+      </div>
+      <div id="note-list"></div>
+    </div>
+
+    <div id="log-sessions" hidden></div>
+  </section>
+
+  <!-- ============ 结构 ============ -->
+  <section class="page" id="page-cards" hidden>
+    <header class="hdr">
+      <h1>结构卡</h1>
+      <p class="sub">看触发信号，不看名字。练到看见场景就想起槽位。</p>
+    </header>
+    <div id="card-list"></div>
+  </section>
+
+  <!-- ============ 分析 ============ -->
+  <section class="page" id="page-analyze" hidden>
+    <header class="hdr">
+      <h1>长期分析</h1>
+      <p class="sub">攒够几条记录再看，找反复犯的毛病。</p>
+    </header>
+    <div class="card">
+      <div class="stats" id="stats"></div>
+      <button id="analyze-btn" class="primary" type="button">分析我的表达</button>
+      <button id="export-btn" class="ghost" type="button">导出全部数据</button>
+    </div>
+    <div id="analysis"></div>
+  </section>
+
+</main>
+
+<nav class="tabs">
+  <button class="tab on" data-page="practice" type="button">练习</button>
+  <button class="tab" data-page="log" type="button">记录</button>
+  <button class="tab" data-page="cards" type="button">结构</button>
+  <button class="tab" data-page="analyze" type="button">分析</button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
