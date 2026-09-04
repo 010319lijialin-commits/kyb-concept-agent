@@ -6,7 +6,8 @@ services:
     runtime: node
     plan: free
     region: singapore
-    branch: claude/thought-tree-product-knoy7d
+    # 跟仓库的默认分支，合并进来的东西才会自动部署。
+    branch: claude/expression-practice-app-mvp-mq9bse
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/config
