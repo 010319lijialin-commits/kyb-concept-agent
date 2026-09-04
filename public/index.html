@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="表达练习" />
+<meta name="apple-mobile-web-app-title" content="枝" />
 <meta name="theme-color" content="#2f6df6" />
-<title>表达练习</title>
+<title>枝 · 想到什么就扔进来</title>
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="icon" href="/icon-192.png" />
@@ -17,12 +17,49 @@
 
 <main id="app">
 
+  <!-- ============ 枝：随手扔 ============ -->
+  <section class="page" id="page-capture">
+    <header class="hdr">
+      <h1>🌱 枝</h1>
+      <p class="sub">想到什么就扔进来，AI 帮你找位置。你不用管放哪。</p>
+    </header>
+
+    <div class="card">
+      <textarea id="cap-input" class="inp ta" rows="5" placeholder="今天想到什么？&#10;&#10;一个观点、一个案例、一个突然想通的事、一个还没想明白的问题……"></textarea>
+      <div class="row">
+        <button id="cap-rec" class="rec rec-sm" type="button"><span class="dot"></span><span id="cap-rec-label">说</span></button>
+        <span class="timer" id="cap-timer">00:00</span>
+        <button id="cap-send" class="primary inline" type="button">扔进树</button>
+      </div>
+    </div>
+
+    <div id="cap-result"></div>
+    <div id="recent-growth"></div>
+  </section>
+
+  <!-- ============ 树 ============ -->
+  <section class="page" id="page-tree" hidden>
+    <header class="hdr">
+      <h1>我的思维树</h1>
+      <p class="sub">表面是树，底层是图。一个观点可以长在多个地方。</p>
+    </header>
+
+    <div class="card">
+      <input id="tree-search" class="inp" placeholder="搜节点、搜碎片原话" />
+    </div>
+
+    <div id="tree-view"></div>
+    <div id="node-detail" hidden></div>
+  </section>
+
   <!-- ============ 练习 ============ -->
-  <section class="page" id="page-practice">
+  <section class="page" id="page-practice" hidden>
     <header class="hdr">
       <h1>练习</h1>
       <p class="sub">开口说，然后看结构对不对。</p>
     </header>
+
+    <div id="practice-brief"></div>
 
     <div class="card">
       <label class="lbl">场景（可留空）</label>
@@ -85,11 +122,12 @@
   <section class="page" id="page-analyze" hidden>
     <header class="hdr">
       <h1>长期分析</h1>
-      <p class="sub">攒够几条记录再看，找反复犯的毛病。</p>
+      <p class="sub">攒够几条记录再看，找反复犯的毛病和想过但没讲过的东西。</p>
     </header>
     <div class="card">
       <div class="stats" id="stats"></div>
-      <button id="analyze-btn" class="primary" type="button">分析我的表达</button>
+      <p class="hint" id="mount-rate"></p>
+      <button id="analyze-btn" class="primary" type="button">分析我的表达和思考</button>
       <button id="export-btn" class="ghost" type="button">导出全部数据</button>
     </div>
     <div id="analysis"></div>
@@ -98,7 +136,9 @@
 </main>
 
 <nav class="tabs">
-  <button class="tab on" data-page="practice" type="button">练习</button>
+  <button class="tab on" data-page="capture" type="button">枝</button>
+  <button class="tab" data-page="tree" type="button">树</button>
+  <button class="tab" data-page="practice" type="button">练习</button>
   <button class="tab" data-page="log" type="button">记录</button>
   <button class="tab" data-page="cards" type="button">结构</button>
   <button class="tab" data-page="analyze" type="button">分析</button>
@@ -107,5 +147,7 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="app.js"></script>
+<script src="branch.js"></script>
+<script>window.XP.boot();</script>
 </body>
 </html>

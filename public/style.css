@@ -207,7 +207,7 @@ ul.plain li { margin: 4px 0; }
 .sc-cue { font-size: 13px; font-weight: 600; color: var(--accent); }
 
 /* ---- 分析 ---- */
-.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 4px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 4px; }
 .stat { text-align: center; padding: 10px 4px; background: var(--bg); border-radius: 10px; }
 .stat b { display: block; font-size: 21px; }
 .stat span { font-size: 11px; color: var(--muted); }
@@ -237,3 +237,98 @@ ul.plain li { margin: 4px 0; }
 
 .spin { display: inline-block; animation: rot 0.9s linear infinite; }
 @keyframes rot { to { transform: rotate(360deg); } }
+
+/* ================= 枝 · 思维树 ================= */
+
+.row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.row.wrap { flex-wrap: wrap; gap: 8px; }
+
+.primary.inline { width: auto; margin: 0; margin-left: auto; padding: 11px 20px; }
+
+.rec-sm { padding: 9px 16px; font-size: 14px; }
+
+/* ---- AI 读到了什么 ---- */
+.comp { margin-top: 10px; }
+.comp-row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+.comp-row:last-child { border-bottom: none; }
+.comp-row > span {
+  flex: 0 0 56px; font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 2px;
+}
+.comp-row p { margin: 0; font-size: 14px; }
+
+/* ---- 挂载建议：这一屏是产品的脸 ---- */
+.mount { border-color: var(--accent); }
+.mount-path {
+  margin: 0; padding: 12px; font-size: 16px; font-weight: 700; line-height: 1.5;
+  background: var(--accent-soft); border-radius: 10px; word-break: break-word;
+}
+.new-flag {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; color: #fff; background: var(--accent);
+  vertical-align: middle;
+}
+.conf { font-size: 12px; color: var(--muted); }
+
+.alt {
+  display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 10px 12px;
+  color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.alt b { display: block; font-size: 14px; }
+.alt span { font-size: 12px; color: var(--muted); }
+
+/* ---- 最近生长 ---- */
+.grow-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 2px; text-align: left;
+  background: none; border: none; border-bottom: 1px dashed var(--border);
+  color: var(--text);
+}
+.grow-row:last-child { border-bottom: none; }
+.grow-path { flex: 1; font-size: 14px; }
+.grow-n { font-size: 13px; font-weight: 700; color: var(--good); }
+.empty-card { border-style: dashed; }
+
+/* ---- 树 ---- */
+.tree { padding: 6px 4px; }
+.tnode {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 10px; text-align: left;
+  background: none; border: none; border-radius: 8px; color: var(--text);
+}
+.tnode:active { background: var(--bg); }
+.tnode-title { flex: 1; font-size: 14.5px; word-break: break-word; }
+.tnode-n {
+  flex: 0 0 auto; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; color: var(--muted); background: var(--bg);
+}
+
+/* ---- 节点详情 ---- */
+.acts { margin-top: 12px; }
+.mini {
+  padding: 7px 12px; font-size: 13px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+}
+.mini.danger { color: var(--danger); }
+.mini:disabled { opacity: 0.5; }
+
+.blk { position: relative; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+.blk:last-child { border-bottom: none; }
+.blk-body { margin: 0 60px 4px 0; white-space: pre-wrap; }
+.blk-meta { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+.blk-raw summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.blk-raw p { margin: 6px 0 0; padding-left: 9px; font-size: 13px; color: var(--muted); border-left: 3px solid var(--border); }
+
+.ins { font-size: 13.5px; margin: 8px 0; }
+
+/* ---- 练习页的题目条 ---- */
+.brief { border-color: var(--accent); }
+.brief-open { margin: 8px 0; font-size: 14px; }
+.brief-script summary { font-size: 13px; color: var(--muted); cursor: pointer; margin: 8px 0; }
+
+/* ---- 六个 tab 要挤得下 ---- */
+.tab { padding: 12px 2px; font-size: 12px; }
+
+.fb-head .tag { flex: 0 0 auto; white-space: nowrap; }
+.fold { font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+details.card > .comp { margin-top: 12px; }

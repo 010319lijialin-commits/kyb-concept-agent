@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    branch: claude/expression-practice-app-mvp-mq9bse
+    branch: claude/thought-tree-product-knoy7d
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/config
