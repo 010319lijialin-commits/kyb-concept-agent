@@ -1,4 +1,4 @@
-/* 表达练习 MVP —— 全部数据存在这台设备的 localStorage 里 */
+/* 表达练习 + 思维树「枝」—— 全部数据存在这台设备的 localStorage 里 */
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -12,6 +12,7 @@ const state = {
   previousText: '',   // 「再练一次」时带上一版做对比
   lastAudioUrl: '',
   needsCode: false,
+  brief: null,        // 从思维树跳过来练某个节点时带的题目
 };
 
 /* ---------------- 存储 ---------------- */
@@ -65,13 +66,35 @@ async function api(path, opts = {}) {
   return data;
 }
 
+// 一个按钮跑异步任务时的统一处理：禁用、换文案、结束后复原。
+async function withBusy(btn, label, fn) {
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  try {
+    return await fn();
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
 /* ---------------- 导航 ---------------- */
+function goto(page) {
+  const btn = $(`.tab[data-page="${page}"]`);
+  if (btn) btn.click();
+}
+
 $$('.tab').forEach((btn) => {
   btn.onclick = () => {
     $$('.tab').forEach((b) => b.classList.toggle('on', b === btn));
     $$('.page').forEach((p) => (p.hidden = p.id !== `page-${btn.dataset.page}`));
     if (btn.dataset.page === 'log') renderLog();
     if (btn.dataset.page === 'analyze') renderStats();
+    if (btn.dataset.page === 'tree') window.Branch?.renderTree();
+    if (btn.dataset.page === 'capture') window.Branch?.renderRecent();
     window.scrollTo(0, 0);
   };
 });
@@ -110,86 +133,134 @@ async function initStructures() {
       </div>`
     )
     .join('');
+
+  return cfg;
 }
 
-/* ---------------- 录音 ---------------- */
-let recorder, chunks = [], startedAt = 0, timerId;
-
+/* ---------------- 录音（练习页和枝页共用） ---------------- */
 function pickMime() {
   const list = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
   return list.find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
 }
 
-function tickTimer() {
-  const s = Math.floor((Date.now() - startedAt) / 1000);
-  $('#timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+// 一个按钮 + 一个计时器 + 录完拿到 blob 要干什么，就是一台录音机。
+function createRecorder({ btn, labelEl, timerEl, idleLabel, doneLabel, onBlob }) {
+  let recorder, chunks = [], startedAt = 0, timerId;
+
+  const tick = () => {
+    if (!timerEl) return;
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    timerEl.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+
+  btn.onclick = async () => {
+    if (recorder?.state === 'recording') return recorder.stop();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return toast('这个浏览器不支持录音，请用 https 打开或手动输入文字');
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickMime();
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      chunks = [];
+      recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        clearInterval(timerId);
+        const type = recorder.mimeType || mimeType || 'audio/webm';
+        btn.classList.remove('recording');
+        labelEl.textContent = '转写中…';
+        btn.disabled = true;
+        try {
+          await onBlob(new Blob(chunks, { type }), type);
+        } finally {
+          btn.disabled = false;
+          labelEl.textContent = doneLabel;
+        }
+      };
+      recorder.start();
+      startedAt = Date.now();
+      tick();
+      timerId = setInterval(tick, 500);
+      btn.classList.add('recording');
+      labelEl.textContent = '停止';
+    } catch (err) {
+      toast('拿不到麦克风权限：' + err.message);
+    }
+  };
+
+  return { reset: () => (labelEl.textContent = idleLabel) };
 }
 
-$('#rec-btn').onclick = async () => {
-  if (recorder?.state === 'recording') {
-    recorder.stop();
-    return;
-  }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    return toast('这个浏览器不支持录音，请用 https 打开或手动输入文字');
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = pickMime();
-    recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    chunks = [];
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    recorder.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      clearInterval(timerId);
-      const type = recorder.mimeType || mimeType || 'audio/webm';
-      const blob = new Blob(chunks, { type });
-      if (state.lastAudioUrl) URL.revokeObjectURL(state.lastAudioUrl);
-      state.lastAudioUrl = URL.createObjectURL(blob);
-      const player = $('#playback');
-      player.src = state.lastAudioUrl;
-      player.hidden = false;
-      await transcribe(blob, type);
-    };
-    recorder.start();
-    startedAt = Date.now();
-    tickTimer();
-    timerId = setInterval(tickTimer, 500);
-    $('#rec-btn').classList.add('recording');
-    $('#rec-label').textContent = '停止';
-  } catch (err) {
-    toast('拿不到麦克风权限：' + err.message);
-  }
-};
-
+// 音频 → 文字。两个页面都走这一条。
 async function transcribe(blob, type) {
-  $('#rec-btn').classList.remove('recording');
-  $('#rec-label').textContent = '转写中…';
-  $('#rec-btn').disabled = true;
-  try {
-    const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
-    const fd = new FormData();
-    fd.append('audio', blob, `speech.${ext}`);
-    const data = await api('/api/transcribe', { method: 'POST', body: fd });
-    $('#transcript').value = data.text || '';
-    if (!data.text) toast('没听清，再说一遍？');
-  } catch (err) {
-    toast(err.message);
-  } finally {
-    $('#rec-btn').disabled = false;
-    $('#rec-label').textContent = '重新录音';
-  }
+  const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
+  const fd = new FormData();
+  fd.append('audio', blob, `speech.${ext}`);
+  const data = await api('/api/transcribe', { method: 'POST', body: fd });
+  return data.text || '';
+}
+
+createRecorder({
+  btn: $('#rec-btn'),
+  labelEl: $('#rec-label'),
+  timerEl: $('#timer'),
+  idleLabel: '开始录音',
+  doneLabel: '重新录音',
+  onBlob: async (blob, type) => {
+    if (state.lastAudioUrl) URL.revokeObjectURL(state.lastAudioUrl);
+    state.lastAudioUrl = URL.createObjectURL(blob);
+    const player = $('#playback');
+    player.src = state.lastAudioUrl;
+    player.hidden = false;
+    try {
+      const text = await transcribe(blob, type);
+      $('#transcript').value = text;
+      if (!text) toast('没听清，再说一遍？');
+    } catch (err) {
+      toast(err.message);
+    }
+  },
+});
+
+/* ---------------- 从思维树跳过来练一段 ---------------- */
+// 「枝」里生成的表达稿不直接算数——得开口说出来，再走一遍复盘，才闭环。
+function startPractice({ scene = '', structureId = '', brief = null } = {}) {
+  $('#scene').value = scene;
+  $('#structure').value = structureId || '';
+  $('#structure').onchange();
+  $('#transcript').value = '';
+  $('#feedback').innerHTML = '';
+  $('#playback').hidden = true;
+  state.previousText = '';
+  state.brief = brief;
+  renderBrief();
+  goto('practice');
+}
+
+function renderBrief() {
+  const b = state.brief;
+  const el = $('#practice-brief');
+  if (!b) return (el.innerHTML = '');
+  el.innerHTML = `<div class="card brief">
+    <div class="fb-head"><h2>要讲的：${esc(b.title)}</h2><button class="del" id="brief-close" type="button">收起</button></div>
+    ${b.openingLine ? `<p class="brief-open">开口第一句：<b>${esc(b.openingLine)}</b></p>` : ''}
+    ${b.hint ? `<p class="hint">${esc(b.hint)}</p>` : ''}
+    ${b.script ? `<details class="brief-script"><summary>看一眼参考稿（先自己讲完再看）</summary><div class="rewrite">${esc(b.script)}</div></details>` : ''}
+    <p class="hint">别念稿子，合上它自己说一遍再复盘。</p>
+  </div>`;
+  $('#brief-close').onclick = () => {
+    state.brief = null;
+    renderBrief();
+  };
 }
 
 /* ---------------- 复盘 ---------------- */
-$('#review-btn').onclick = async () => {
-  const text = $('#transcript').value.trim();
-  if (!text) return toast('先说点什么，或者手动打字');
+$('#review-btn').onclick = () =>
+  withBusy($('#review-btn'), '复盘中…', async () => {
+    const text = $('#transcript').value.trim();
+    if (!text) return toast('先说点什么，或者手动打字');
 
-  const btn = $('#review-btn');
-  btn.disabled = true;
-  btn.textContent = '复盘中…';
-  try {
     const data = await api('/api/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -206,6 +277,7 @@ $('#review-btn').onclick = async () => {
       createdAt: Date.now(),
       scene: $('#scene').value.trim(),
       text,
+      nodeId: state.brief?.nodeId || null,
       feedback: data.feedback,
     };
     const sessions = load(KEY.sessions);
@@ -214,13 +286,7 @@ $('#review-btn').onclick = async () => {
 
     state.previousText = '';
     renderFeedback(data.feedback, text);
-  } catch (err) {
-    toast(err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '复盘这段表达';
-  }
-};
+  });
 
 function renderFeedback(f, text) {
   const st = state.structures.find((s) => s.id === f.target_structure_id);
@@ -311,6 +377,7 @@ function renderFeedback(f, text) {
     <div class="card">
       ${f.next_prompt ? `<p class="section-t">下一题</p><p>${esc(f.next_prompt)}</p>` : ''}
       <button class="primary" id="retry-btn" type="button">用这个结构再说一遍</button>
+      <button class="ghost" id="to-tree-btn" type="button">把这段沉淀进思维树</button>
     </div>
   `;
 
@@ -324,6 +391,9 @@ function renderFeedback(f, text) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast('这次按结构再说一遍，会跟上一版对比');
   };
+
+  // 说出来的东西比打字的更接近真实想法，值得进树。
+  $('#to-tree-btn').onclick = () => window.Branch?.capture(text, '练习');
 
   $('#feedback').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -360,6 +430,7 @@ function renderLog() {
             <button class="del" data-del-note="${n.id}" type="button">删除</button>
             <div class="item-meta"><span class="tag">${esc(n.type)}</span><span>${fmtDate(n.createdAt)}</span></div>
             <div class="item-body">${esc(n.content)}</div>
+            <button class="link" data-tree-note="${n.id}" type="button">扔进思维树 →</button>
           </div>`
         )
         .join('')
@@ -399,6 +470,12 @@ function renderLog() {
       renderLog();
     };
   });
+  $$('[data-tree-note]').forEach((b) => {
+    b.onclick = () => {
+      const n = load(KEY.notes).find((x) => x.id === b.dataset.treeNote);
+      if (n) window.Branch?.capture(n.content, n.type);
+    };
+  });
   $$('[data-open-session]').forEach((b) => {
     b.onclick = () => {
       const s = load(KEY.sessions).find((x) => x.id === b.dataset.openSession);
@@ -406,7 +483,7 @@ function renderLog() {
       $('#transcript').value = s.text;
       $('#scene').value = s.scene || '';
       renderFeedback(s.feedback || {}, s.text);
-      $$('.tab')[0].click();
+      goto('practice');
     };
   });
 }
@@ -420,32 +497,34 @@ function avgScore(f) {
 function renderStats() {
   const sessions = load(KEY.sessions);
   const notes = load(KEY.notes);
+  const tree = window.Branch?.stats() || { nodes: 0, blocks: 0, proposed: 0, accepted: 0 };
   const avgs = sessions.map((s) => avgScore(s.feedback)).filter(Boolean).map(Number);
   const avg = avgs.length ? (avgs.reduce((a, b) => a + b, 0) / avgs.length).toFixed(1) : '—';
   $('#stats').innerHTML = `
     <div class="stat"><b>${sessions.length}</b><span>练习</span></div>
-    <div class="stat"><b>${notes.length}</b><span>笔记</span></div>
-    <div class="stat"><b>${avg}</b><span>平均分</span></div>`;
+    <div class="stat"><b>${avg}</b><span>平均分</span></div>
+    <div class="stat"><b>${tree.nodes}</b><span>节点</span></div>
+    <div class="stat"><b>${tree.blocks}</b><span>碎片</span></div>`;
+
+  // 「枝」这一版最该盯的指标：AI 推荐的挂载位置，我有多少次直接接受。
+  $('#mount-rate').textContent = tree.proposed
+    ? `挂载采纳率 ${Math.round((tree.accepted / tree.proposed) * 100)}%（${tree.accepted}/${tree.proposed}）——它低就说明 AI 还没理解你的思维结构。`
+    : '还没有挂载记录。挂载采纳率是这一版最该盯的指标。';
 }
 
-$('#analyze-btn').onclick = async () => {
-  const btn = $('#analyze-btn');
-  btn.disabled = true;
-  btn.textContent = '分析中…';
-  try {
+$('#analyze-btn').onclick = () =>
+  withBusy($('#analyze-btn'), '分析中…', async () => {
     const data = await api('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessions: load(KEY.sessions), notes: load(KEY.notes) }),
+      body: JSON.stringify({
+        sessions: load(KEY.sessions),
+        notes: load(KEY.notes),
+        tree: window.Branch?.digest() || [],
+      }),
     });
     renderAnalysis(data.analysis);
-  } catch (err) {
-    toast(err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '分析我的表达';
-  }
-};
+  });
 
 function renderAnalysis(a) {
   const list = (arr) => `<ul class="plain">${(arr || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`;
@@ -469,8 +548,18 @@ function renderAnalysis(a) {
       <p>${esc(a.weakest_structure || '—')}</p>
       <p class="section-t">稳定优势</p>
       ${list(a.strengths)}
-      ${(a.note_themes || []).length ? `<p class="section-t">笔记里的主题</p>${list(a.note_themes)}` : ''}
+      ${(a.note_themes || []).length ? `<p class="section-t">你反复在想的主题</p>${list(a.note_themes)}` : ''}
     </div>
+    ${
+      (a.thinking_gaps || []).length
+        ? `<div class="card">
+            <p class="section-t">想过，但还缺一块</p>
+            ${a.thinking_gaps
+              .map((g) => `<div class="issue"><p class="prob"><b>${esc(g.topic)}</b></p><p class="fix">${esc(g.gap)}</p></div>`)
+              .join('')}
+           </div>`
+        : ''
+    }
     <div class="card drill">
       <p class="section-t">接下来两周</p>
       ${list(a.next_two_weeks)}
@@ -479,15 +568,29 @@ function renderAnalysis(a) {
 }
 
 $('#export-btn').onclick = () => {
-  const blob = new Blob([JSON.stringify({ sessions: load(KEY.sessions), notes: load(KEY.notes) }, null, 2)], {
-    type: 'application/json',
-  });
+  const payload = {
+    sessions: load(KEY.sessions),
+    notes: load(KEY.notes),
+    ...(window.Branch?.exportData() || {}),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `表达练习备份-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `枝-备份-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
 };
 
-/* ---------------- 启动 ---------------- */
-initStructures().then(renderLog).catch((e) => toast('初始化失败：' + e.message));
+/* ---------------- 给 branch.js 用的公共部分 ---------------- */
+window.XP = {
+  $, $$, esc, fmtDate, toast, api, load, save, withBusy, goto,
+  state, createRecorder, transcribe, startPractice,
+  boot() {
+    initStructures()
+      .then((cfg) => {
+        window.Branch?.init(cfg);
+        renderLog();
+      })
+      .catch((e) => toast('初始化失败：' + e.message));
+  },
+};

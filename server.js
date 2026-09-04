@@ -4,6 +4,15 @@ import multer from 'multer';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STRUCTURES, STRUCTURE_INDEX, structuresForPrompt } from './structures.js';
+import {
+  BLOCK_TYPES,
+  RELATION_TYPES,
+  EXPRESS_MODES,
+  EXPRESS_INDEX,
+  blockTypesForPrompt,
+  relationTypesForPrompt,
+  outlineForPrompt,
+} from './tree.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +69,32 @@ async function openai(pathname, init) {
   return JSON.parse(raw);
 }
 
+// 复盘、分析、思维树都在跑同一个「要一段结构化 JSON」的调用，抽出来。
+async function chatJSON({ system, user, temperature = 0.4 }) {
+  const data = await openai('/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: REVIEW_MODEL,
+      temperature,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  });
+  const content = data.choices?.[0]?.message?.content || '{}';
+  try {
+    return JSON.parse(content);
+  } catch {
+    const err = new Error('模型返回的不是合法 JSON');
+    err.status = 502;
+    err.raw = content;
+    throw err;
+  }
+}
+
 app.get('/api/config', (_req, res) => {
   res.json({
     hasKey: Boolean(API_KEY),
@@ -67,6 +102,9 @@ app.get('/api/config', (_req, res) => {
     transcribeModel: TRANSCRIBE_MODEL,
     reviewModel: REVIEW_MODEL,
     structures: STRUCTURES,
+    blockTypes: BLOCK_TYPES,
+    relationTypes: RELATION_TYPES,
+    expressModes: EXPRESS_MODES,
   });
 });
 
@@ -179,8 +217,8 @@ app.post('/api/review', gate, async (req, res) => {
 // 长期分析：把历史记录喂回去，找反复出现的毛病
 app.post('/api/analyze', gate, async (req, res) => {
   if (!requireKey(res)) return;
-  const { sessions = [], notes = [] } = req.body || {};
-  if (!sessions.length && !notes.length) {
+  const { sessions = [], notes = [], tree = [] } = req.body || {};
+  if (!sessions.length && !notes.length && !tree.length) {
     return res.status(400).json({ error: '还没有记录可以分析' });
   }
 
@@ -201,6 +239,12 @@ app.post('/api/analyze', gate, async (req, res) => {
     .map((n) => `[${n.type}] ${n.content}`)
     .join('\n');
 
+  // 思维树也一起喂进去：表达上的毛病和思考上的空缺，本来就是同一个人的同一个问题。
+  const treeDigest = tree
+    .slice(0, 120)
+    .map((n) => `${n.path}（${n.blocks || 0} 条${n.types?.length ? '：' + n.types.join('、') : ''}）`)
+    .join('\n');
+
   try {
     const data = await openai('/chat/completions', {
       method: 'POST',
@@ -212,20 +256,26 @@ app.post('/api/analyze', gate, async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: `你在看一个人长期的表达练习记录和随手笔记，要给出教练视角的长期诊断。
-不要复述数据，要找模式。只输出 JSON：
+            content: `你在看一个人长期的表达练习记录、随手笔记，以及他自己长出来的思维树，
+要给出教练视角的长期诊断。不要复述数据，要找模式。
+
+特别注意「想」和「说」之间的落差：
+他思维树里最厚的主题，是不是恰好是他讲不清楚的？他反复思考的问题，有没有真的练过表达？
+
+只输出 JSON：
 {
   "recurring_problems": [{"pattern":"反复出现的毛病","evidence":"依据","cost":"它让你在什么场景吃亏"}],
   "strengths": ["稳定的优势"],
   "blind_spot": "他自己大概率没意识到的一点",
   "weakest_structure": "最需要补的结构及原因",
-  "note_themes": ["笔记里反复出现的主题，没有笔记就空数组"],
-  "next_two_weeks": ["接下来两周的具体训练动作，3 条，可执行到每天"]
+  "note_themes": ["笔记和思维树里反复出现的主题，没有就空数组"],
+  "thinking_gaps": [{"topic":"思维树里的主题","gap":"缺什么：缺案例 / 只有结论没有原因 / 两条碎片矛盾 / 想过但从没讲过"}],
+  "next_two_weeks": ["接下来两周的具体训练动作，3 条，可执行到每天，尽量指名用思维树里的哪个主题去练"]
 }`,
           },
           {
             role: 'user',
-            content: `练习记录：\n${digest || '（无）'}\n\n随手笔记：\n${noteDigest || '（无）'}`,
+            content: `练习记录：\n${digest || '（无）'}\n\n随手笔记：\n${noteDigest || '（无）'}\n\n思维树：\n${treeDigest || '（无）'}`,
           },
         ],
       }),
@@ -235,6 +285,170 @@ app.post('/api/analyze', gate, async (req, res) => {
   } catch (err) {
     console.error('[analyze]', err.message);
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+
+/* ==================== 思维树「枝」 ==================== */
+
+// 产品的核心差异化就在这一个接口：
+// 用户随手扔一句话，AI 说出「它应该长在你哪棵树的哪个节点上，以及为什么」。
+const INGEST_PROMPT = `你是用户「思维树」的整理助手。用户会随手扔进来一个想法碎片：
+可能是一个观点、一个案例、一个问题、一个新学的概念，或者一段经历。
+
+你要做三件事：
+1. 读懂它：判断类型，提炼核心，拆成结构化要素。
+2. 决定它该长在树的哪个位置。
+3. 找出它和哪些已有节点存在横向关联（表面是树，底层是图，一个观点可以属于多个主题）。
+
+挂载原则（很重要，直接决定产品成败）：
+- 优先挂到已有节点上，让已有知识变厚。只有确实没有合适位置时才新建。
+- 新建路径最多 2 层；节点标题是 2-12 个字的概念名，不是一句话。
+- 一条碎片不等于一个新节点。多数情况下它只是某个节点里的一个「块」。
+- block_type 表示这段碎片在目标节点里扮演什么角色，从这些里选：${blockTypesForPrompt()}
+- 保留用户的原话，不要改写成你的语气；summary 才是你精炼过的一句话。
+- confidence 是你对挂载位置的把握。低于 0.6 时，alternatives 至少给 2 个真正不同的选择。
+- 挂载理由要说人话，说清「为什么是这里，而不是别处」，一到两句。
+
+关系类型可选：${relationTypesForPrompt()}
+
+只输出 JSON，不要 markdown 代码块。schema：
+{
+  "understanding": {
+    "type": "观点|案例|问题|概念|经历|事实|其他",
+    "title": "适合当节点标题的短语，2-12 字",
+    "summary": "一句话说清这条碎片的核心",
+    "components": {
+      "claim": "核心主张，没有就 null",
+      "reason": "原因，没有就 null",
+      "example": "例子，没有就 null",
+      "implication": "推论 / 所以呢，没有就 null",
+      "question": "它引出的待验证问题，没有就 null"
+    }
+  },
+  "mount": {
+    "mode": "existing 挂到已有节点 | new 新建节点",
+    "target_node_id": "mode=existing 时填已有节点 id，否则 null",
+    "parent_node_id": "mode=new 时填新节点挂在哪个已有节点下；挂到根就填 null",
+    "new_path": ["mode=new 时从 parent 往下要新建的节点标题，1-2 个"],
+    "block_type": "这段碎片在目标节点里的角色",
+    "block_content": "要存进节点的内容，基于用户原话整理，保留他的说法",
+    "reason": "为什么挂这里而不是别处",
+    "confidence": 0.0
+  },
+  "alternatives": [
+    {"label": "备选位置的可读路径", "target_node_id": "已有节点 id 或 null", "parent_node_id": "或 null", "new_path": [], "reason": "什么情况下应该选它"}
+  ],
+  "relations": [
+    {"target_node_id": "已有节点 id", "type": "关系类型", "note": "一句话说清它们的关系"}
+  ]
+}`;
+
+app.post('/api/ingest', gate, async (req, res) => {
+  if (!requireKey(res)) return;
+  const { text, nodes = [] } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: '没有可整理的内容' });
+
+  try {
+    const result = await chatJSON({
+      system: INGEST_PROMPT,
+      temperature: 0.3,
+      user: `用户现在的思维树：\n${outlineForPrompt(nodes)}\n\n他刚扔进来的碎片：\n"""\n${text.trim()}\n"""`,
+    });
+    res.json({ result });
+  } catch (err) {
+    console.error('[ingest]', err.message);
+    res.status(err.status || 500).json({ error: err.message, raw: err.raw });
+  }
+});
+
+// 一个主题攒了很多碎片之后，AI 主动帮你归纳成几个核心观点。
+app.post('/api/reorganize', gate, async (req, res) => {
+  if (!requireKey(res)) return;
+  const { node, blocks = [], children = [] } = req.body || {};
+  if (!node?.title) return res.status(400).json({ error: '没有指定要整理的节点' });
+  if (blocks.length + children.length < 2) {
+    return res.status(400).json({ error: '这个节点内容还太少，先多扔几条进来' });
+  }
+
+  const blockList = blocks
+    .map((b) => `- ${b.id} | [${b.type}] ${String(b.content || '').slice(0, 300)}`)
+    .join('\n');
+  const childList = children.map((c) => `- ${c.id} | ${c.title}（${c.blocks || 0} 条碎片）`).join('\n');
+
+  try {
+    const result = await chatJSON({
+      temperature: 0.4,
+      system: `你在帮用户整理他自己思维树里的一个主题。他往这个主题下扔了很多碎片，现在需要你看出结构。
+
+你要做的是「归纳」，不是「重写」：
+- 把这些碎片归到 2-5 个核心观点/子主题下，每个组的标题是 2-12 字的概念名。
+- 只有确实同属一类的才放一组，硬凑的组不如放进 leftover。
+- 已有的子节点也可以被重新归组（用它们的 id）。
+- 另外指出你看到的问题：哪个观点只有主张没有案例、哪两条碎片其实互相矛盾、哪里明显缺一块。
+- 这是用户自己的思维，不要把它整理成一个"看起来很漂亮但不是他的"体系。宁可少归纳。
+
+只输出 JSON：
+{
+  "summary": "这个主题目前的整体判断，两三句",
+  "groups": [{"title":"子主题标题","why":"为什么它们是一类","block_ids":[],"child_node_ids":[]}],
+  "leftover_block_ids": ["暂时归不进任何组的碎片 id"],
+  "insights": [{"kind":"缺案例|有矛盾|缺推论|可深挖","detail":"具体说明，引用碎片内容"}]
+}`,
+      user: `主题：${node.path || node.title}\n\n它下面的碎片：\n${blockList || '（无）'}\n\n它下面的子节点：\n${childList || '（无）'}`,
+    });
+    res.json({ result });
+  } catch (err) {
+    console.error('[reorganize]', err.message);
+    res.status(err.status || 500).json({ error: err.message, raw: err.raw });
+  }
+});
+
+// 表达模式：把一个节点里攒的东西，变成可以直接开口说的稿子。
+// 每种模式都复用表达结构库里的一个结构，生成完可以一键跳到练习页录音。
+app.post('/api/express', gate, async (req, res) => {
+  if (!requireKey(res)) return;
+  const { node, blocks = [], modeId } = req.body || {};
+  if (!node?.title) return res.status(400).json({ error: '没有指定节点' });
+
+  const mode = EXPRESS_INDEX[modeId] || EXPRESS_MODES[0];
+  const structure = STRUCTURE_INDEX[mode.structureId];
+  const material = blocks
+    .map((b) => `[${b.type}] ${String(b.content || '').slice(0, 500)}`)
+    .join('\n');
+
+  try {
+    const result = await chatJSON({
+      temperature: 0.6,
+      system: `你是这个人的表达教练。他在自己的思维树里攒了一个主题的素材，现在要把它讲出来。
+
+这次的场景：${mode.name} —— ${mode.scene}
+必须使用的表达结构：${structure.name}
+槽位：${structure.slots.join(' → ')}
+口诀：${structure.cue}
+额外要求：${mode.ask}
+
+硬性要求：
+- 只能用他自己素材里的事实、例子和观点，不许替他编经历、编数据。
+- 素材填不满的槽位，就在 gaps 里说清缺什么，不要用漂亮的空话把它填上。
+- script 是口语稿，是给他照着念出来的，不是书面文章。别用"首先其次最后"这种书面连接词。
+- opening_line 是他一开口就说的那一句，必须能独立成立。
+
+只输出 JSON：
+{
+  "structure_id": "${structure.id}",
+  "opening_line": "开口第一句",
+  "script": "完整口语稿",
+  "slot_map": [{"slot":"槽位名","content":"这一格说什么","source":"用了哪条素材，没素材就写「缺」"}],
+  "gaps": ["这个节点还缺什么素材才能讲得更实，每条都具体到该补什么"],
+  "practice_hint": "开口练这段时最该注意的一点"
+}`,
+      user: `主题：${node.path || node.title}\n\n素材：\n${material || '（这个节点还没有内容）'}`,
+    });
+    res.json({ result, mode, structure });
+  } catch (err) {
+    console.error('[express]', err.message);
+    res.status(err.status || 500).json({ error: err.message, raw: err.raw });
   }
 });
 
