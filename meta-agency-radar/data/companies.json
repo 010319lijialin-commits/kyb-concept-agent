@@ -1,0 +1,45 @@
+{
+  "note": "名单在这里增减。role: self = 我方（长虹佳华，作为对照基准），candidate = 竞标对手。新增公司后跑 `npm run agent` 采集；离线模式下没有证据的新公司会以全部「未知」进入排名。",
+  "companies": [
+    {
+      "id": "changhong",
+      "name": "长虹佳华控股有限公司",
+      "short": "长虹佳华",
+      "search_name": "长虹佳华",
+      "role": "self",
+      "seed_urls": ["https://www.changhongit.com/brand/show-1085.html", "https://www.163.com/dy/article/KPCMF07U05198ETO.html"]
+    },
+    {
+      "id": "lingtok",
+      "name": "青岛领拓跨境电商运营有限公司",
+      "short": "领拓",
+      "search_name": "领拓 LingTok",
+      "role": "candidate",
+      "seed_urls": ["http://www.lingtok.net/about.html", "https://www.amz123.com/lingtok"]
+    },
+    {
+      "id": "addragon",
+      "name": "厦门龙商网络技术服务有限公司",
+      "short": "龙商",
+      "search_name": "龙商 AdDragon",
+      "role": "candidate",
+      "seed_urls": ["https://xm-ls.com/about.html", "https://www.amz123.com/addragon/introduction"]
+    },
+    {
+      "id": "ecoglobal",
+      "name": "宜客数字科技(深圳)有限公司",
+      "short": "宜客",
+      "search_name": "宜客数字科技 宜客跨境",
+      "role": "candidate",
+      "seed_urls": ["https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm"]
+    },
+    {
+      "id": "shoplazza",
+      "name": "深圳店匠科技有限公司",
+      "short": "店匠",
+      "search_name": "店匠 Shoplazza",
+      "role": "candidate",
+      "seed_urls": ["https://www.shoplazza.cn/pages/about-us", "https://m.ebrun.com/471366.html"]
+    }
+  ]
+}

@@ -1,0 +1,744 @@
+<title>Meta 一代竞争力雷达</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 版式：尽调档案，分层展开。第一屏只放结论和行动；往下是「调一调」；再往下每条结论都能逐层点开到证据和来源。 */
+:root {
+  --paper: #f5f7fa;
+  --sheet: #ffffff;
+  --ink: #13203a;
+  --ink-2: #4a5873;
+  --rule: #d9dfe9;
+  --accent: #1f5fd1;
+  --accent-soft: #e4ecfb;
+  --bar: #9aa6bb;
+  --good: #1d7a4f;
+  --good-soft: #e1f3ea;
+  --bad: #b3372b;
+  --bad-soft: #fbe6e3;
+  --warn: #946200;
+  --warn-soft: #fbf0d6;
+  --hatch: #c9d0dc;
+  --heat-0: #eef2f8;
+  --heat-5: #1f5fd1;
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1522; --sheet: #161e2e; --ink: #e6ebf4; --ink-2: #9aa8c0; --rule: #2a3550;
+    --accent: #7ea6ff; --accent-soft: #1c2a48; --bar: #56647e; --good: #5fcf98; --good-soft: #15302a;
+    --bad: #ff8a7d; --bad-soft: #3a1d1c; --warn: #f0c060; --warn-soft: #362b12;
+    --hatch: #3a465f; --heat-0: #1b2438; --heat-5: #7ea6ff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1522; --sheet: #161e2e; --ink: #e6ebf4; --ink-2: #9aa8c0; --rule: #2a3550;
+  --accent: #7ea6ff; --accent-soft: #1c2a48; --bar: #56647e; --good: #5fcf98; --good-soft: #15302a;
+  --bad: #ff8a7d; --bad-soft: #3a1d1c; --warn: #f0c060; --warn-soft: #362b12;
+  --hatch: #3a465f; --heat-0: #1b2438; --heat-5: #7ea6ff; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 24px 64px; display: grid; gap: 36px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.3; }
+h1 { font-size: clamp(24px, 3.6vw, 32px); font-weight: 900; }
+h2 { font-size: 21px; font-weight: 900; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.label { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-2); font-weight: 500; }
+.muted { color: var(--ink-2); }
+.small { font-size: 13px; }
+.stack { display: grid; gap: 10px; align-content: start; min-width: 0; }
+
+header.top { display: grid; gap: 8px; }
+header.top .meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--ink-2); }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+section { display: grid; gap: 16px; min-width: 0; }
+
+.tag { display: inline-block; font-size: 12px; line-height: 1.6; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; white-space: nowrap; }
+.tag.good { background: var(--good-soft); color: var(--good); }
+.tag.bad { background: var(--bad-soft); color: var(--bad); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.tag.ghost { background: transparent; border: 1px solid var(--rule); color: var(--ink-2); }
+
+/* 逐层展开：所有「为什么」都是 details */
+details.why { border-top: 1px solid var(--rule); }
+details.why > summary { list-style: none; cursor: pointer; padding: 10px 0; display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: start; }
+details.why > summary::-webkit-details-marker { display: none; }
+details.why > summary::before { content: "▸"; color: var(--accent); font-size: 13px; line-height: 1.7; transition: transform .15s; }
+details.why[open] > summary::before { transform: rotate(90deg); }
+details.why > .body { padding: 0 0 14px 24px; display: grid; gap: 10px; min-width: 0; }
+details.why details.why > .body { padding-left: 20px; }
+details.why.lv2 { border-top: 1px dashed var(--rule); }
+details.why.lv2 > summary { font-size: 13px; color: var(--accent); padding: 6px 0; }
+.peek { font-size: 12px; color: var(--accent); white-space: nowrap; }
+details[open] > summary .peek { display: none; }
+
+/* 第一层：结论 */
+.hero { background: var(--sheet); border: 1px solid var(--rule); border-top: 3px solid var(--ink); border-radius: 6px; padding: 22px; display: grid; gap: 20px; }
+.headline { font-family: var(--font-display); font-size: clamp(19px, 2.6vw, 24px); font-weight: 600; line-height: 1.55; max-width: 44em; }
+.change { border-radius: 6px; padding: 12px 14px; background: var(--warn-soft); color: var(--ink); display: grid; gap: 6px; font-size: 14px; }
+.change .label { color: var(--warn); }
+.change ul { margin: 0; padding-left: 18px; }
+.change .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 28px; }
+@media (max-width: 820px) { .hero-grid { grid-template-columns: 1fr; } }
+ol.actions { list-style: none; margin: 0; padding: 0; counter-reset: a; }
+ol.actions > li { counter-increment: a; }
+ol.actions > li > details > summary { grid-template-columns: 26px 1fr; }
+ol.actions > li > details > summary::before { content: counter(a); transform: none !important; font-family: var(--font-mono); font-weight: 600; font-size: 13px; color: var(--sheet); background: var(--accent); border-radius: 50%; width: 20px; height: 20px; display: grid; place-items: center; margin-top: 3px; }
+ol.actions .act-title { font-weight: 700; }
+ol.actions .act-text { display: block; font-size: 14px; color: var(--ink-2); }
+
+/* 排名条 */
+.bars { display: grid; gap: 2px; }
+.bar-row > details > summary { grid-template-columns: 18px 72px minmax(0, 1fr) 44px; align-items: center; gap: 10px; }
+.bar-track { position: relative; height: 14px; background: var(--heat-0); border-radius: 4px; }
+.bar-range { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, transparent 0 4px, var(--hatch) 4px 6px); border-radius: 4px; }
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 0 4px 4px 0; }
+.bar-row.self .bar-fill { background: var(--accent); }
+.bar-row.self .bname { color: var(--accent); font-weight: 700; }
+.bname { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bval { font-family: var(--font-mono); font-size: 15px; font-weight: 600; text-align: right; }
+
+/* 维度对比小条 */
+.dimbars { display: grid; grid-template-columns: 72px 1fr 40px; gap: 4px 10px; align-items: center; font-size: 13px; }
+.dimbars .t { height: 10px; background: var(--heat-0); border-radius: 3px; position: relative; }
+.dimbars .t i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 0 3px 3px 0; }
+.dimbars .me { color: var(--accent); font-weight: 700; }
+.dimbars .me + .t i { background: var(--accent); }
+.dimbars .unk { background: repeating-linear-gradient(135deg, var(--heat-0) 0 4px, var(--hatch) 4px 6px); }
+.dimbars .v { font-family: var(--font-mono); text-align: right; }
+
+.ev { font-size: 13px; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: 10px; display: grid; gap: 2px; }
+.ev b { color: var(--ink); font-weight: 500; }
+.ev .src { font-size: 12px; }
+table.mini { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.mini th, table.mini td { padding: 5px 6px; border-bottom: 1px solid var(--rule); text-align: left; }
+table.mini th { color: var(--ink-2); font-weight: 500; }
+table.mini td.n, table.mini th.n { text-align: right; font-family: var(--font-mono); }
+table.mini tr.sum td { font-weight: 700; border-bottom: 0; }
+.scroll { overflow-x: auto; }
+
+/* 第二层：调一调 */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); }
+.tabs button { font: inherit; font-size: 15px; background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; color: var(--ink-2); cursor: pointer; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 700; }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; display: grid; gap: 18px; }
+.adjust-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 28px; }
+@media (max-width: 820px) { .adjust-grid { grid-template-columns: 1fr; } }
+.slider { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: center; }
+.slider label { font-size: 14px; font-weight: 500; }
+.slider output { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); text-align: right; }
+.slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.slider details.why { grid-column: 1 / -1; border-top: 0; }
+.slider details.why > summary { padding: 0 0 4px; font-size: 12px; color: var(--accent); }
+.rubric { display: grid; grid-template-columns: 34px 1fr; gap: 2px 8px; font-size: 12px; color: var(--ink-2); }
+.rubric b { font-family: var(--font-mono); color: var(--ink); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); border-radius: 999px; padding: 3px 10px; font-size: 13px; cursor: pointer; background: var(--sheet); color: var(--ink); }
+.chip input { accent-color: var(--accent); margin: 0; }
+.chip.self { border-color: var(--accent); }
+form.row, .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+input[type="text"], input[type="url"], select { font: inherit; font-size: 14px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 5px 8px; min-width: 0; }
+input[type="text"], input[type="url"] { flex: 1 1 160px; }
+button.btn { font: inherit; font-size: 14px; border-radius: 4px; padding: 5px 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--sheet); cursor: pointer; }
+button.btn.ghost { background: transparent; color: var(--accent); }
+button.link { font: inherit; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; text-decoration: underline; }
+.hint { font-size: 12px; color: var(--ink-2); }
+.intel-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.intel-form .wide { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.alert { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+.alert.opportunity { border-left: 4px solid var(--good); }
+.alert.threat { border-left: 4px solid var(--bad); }
+.alert.info { border-left: 4px solid var(--warn); }
+
+/* 第三层：每家公司 */
+.co-list { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0 18px; }
+.co-list > details.why:first-child { border-top: 0; }
+.co-sum { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; }
+.co-sum .rk { font-family: var(--font-mono); font-weight: 600; }
+.co-sum .sc { font-family: var(--font-mono); font-weight: 600; font-size: 17px; }
+.co-sum .pos { grid-column: 2 / -1; font-size: 13px; color: var(--ink-2); }
+.cells { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+.cell { display: inline-grid; place-items: center; min-width: 44px; height: 24px; padding: 0 6px; border-radius: 4px; font-family: var(--font-mono); font-size: 12px; }
+.cell.unk { background: repeating-linear-gradient(135deg, var(--heat-0) 0 4px, var(--hatch) 4px 6px); color: var(--ink-2); font-family: var(--font-body); }
+.dim-sum { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dim-sum .name { font-weight: 700; font-size: 14px; }
+
+/* 第四层：方法 */
+.method { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0 18px; }
+.method > details.why:first-child { border-top: 0; }
+ul.plain { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+ul.plain li { padding-left: 14px; position: relative; }
+ul.plain li::before { content: ""; position: absolute; left: 0; top: 0.7em; width: 5px; height: 5px; border-radius: 50%; background: var(--ink-2); }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 14px; max-width: 520px; }
+.kv .v { font-family: var(--font-mono); text-align: right; }
+.kv .sum { font-weight: 700; border-top: 1px solid var(--rule); padding-top: 4px; }
+.step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; font-size: 14px; }
+.step .n { font-family: var(--font-mono); font-weight: 600; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 24px; height: 24px; display: grid; place-items: center; font-size: 12px; }
+footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule); padding-top: 14px; }
+@media (prefers-reduced-motion: reduce) { details.why > summary::before { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <span class="label">长虹佳华 · 竞标 META 中国大陆一级代理</span>
+    <h1>Meta 一代竞争力雷达</h1>
+    <div class="meta">
+      <span>数据截至 <b class="num" id="runDate"></b></span>
+      <span>4 家竞对 + 长虹佳华对照</span>
+      <span>评分 0–5，找不到证据标「未知」</span>
+      <span id="stateTag"></span>
+    </div>
+  </header>
+
+  <!-- 第一层：结论和怎么做 -->
+  <section id="verdict" aria-labelledby="verdict-h">
+    <div class="hero">
+      <h2 id="verdict-h" class="label" style="font-family:var(--font-body);font-size:12px;font-weight:500">结论</h2>
+      <p class="headline" id="headline"></p>
+      <div class="change" id="changeBox" hidden></div>
+      <div class="hero-grid">
+        <div class="stack">
+          <span class="label">怎么做（点开看为什么）</span>
+          <ol class="actions" id="actions"></ol>
+        </div>
+        <div class="stack">
+          <span class="label">排名（点开看分数怎么算的）</span>
+          <div class="bars" id="rankBars"></div>
+          <p class="hint">斜纹是未知维度可能的浮动范围：按 0 分到按 5 分。</p>
+          <span class="label" style="margin-top:8px">长虹佳华的长板和短板</span>
+          <div id="sw"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 第二层：调一调 -->
+  <section id="adjust" aria-labelledby="adjust-h">
+    <div class="sec-head"><h2 id="adjust-h">调一调，结论怎么变</h2><span class="hint">改动会实时反映到上面的结论里，并标出和初始结论的差别</span></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-mine" aria-controls="pane-mine" type="button">我的判断</button>
+      <button role="tab" id="tab-market" aria-controls="pane-market" type="button">市场新信息</button>
+    </div>
+    <div class="panel" role="tabpanel" id="pane-mine" aria-labelledby="tab-mine">
+      <div class="change echo" hidden></div>
+      <div class="adjust-grid">
+        <div class="stack">
+          <span class="label">权重：Meta 最看重什么</span>
+          <div class="stack" id="sliders" style="gap:14px"></div>
+          <details class="why lv2" data-k="calib"><summary><span>这套权重怎么校验？</span></summary><div class="body small" id="calib"></div></details>
+        </div>
+        <div class="stack" style="gap:18px">
+          <div class="stack">
+            <span class="label">比哪几家</span>
+            <div class="chips" id="roster"></div>
+            <form class="row" id="addForm">
+              <input type="text" id="addName" placeholder="加一家公司，如 钛动科技" aria-label="新增公司名称">
+              <button class="btn" type="submit">加入</button>
+            </form>
+            <p class="hint">新加的公司先以全部「未知」进入排名，到「市场新信息」录入情报或跑一次 Agent 后才有分数。</p>
+          </div>
+          <div class="stack">
+            <label class="label" for="unknownMode">查不到的信息怎么算</label>
+            <select id="unknownMode"></select>
+            <p class="hint">保守是默认：对 Meta 来说，查不到资金和合规本身就是风险。</p>
+          </div>
+          <button class="btn ghost" type="button" id="resetBtn">恢复初始结论</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel" role="tabpanel" id="pane-market" aria-labelledby="tab-market" hidden>
+      <div class="change echo" hidden></div>
+      <div class="adjust-grid">
+        <div class="stack">
+          <span class="label">录入一条新情报</span>
+          <p class="small muted">比如销售听说某家拿到了融资、被 Meta 处罚、签下一个产业带。录入后等同于一次重跑的结果：分数更新，结论和提醒跟着变。</p>
+          <form class="intel-form" id="intelForm">
+            <select id="intelCo" aria-label="公司"></select>
+            <select id="intelDim" aria-label="维度"></select>
+            <select id="intelScore" aria-label="新分数"></select>
+            <div class="wide">
+              <input type="text" id="intelNote" placeholder="情报内容，如：完成 B 轮 2 亿元融资" aria-label="情报内容" required>
+              <input type="url" id="intelUrl" placeholder="来源链接（可选）" aria-label="来源链接">
+              <button class="btn" type="submit">更新</button>
+            </div>
+          </form>
+          <div class="stack" id="intelList"></div>
+        </div>
+        <div class="stack">
+          <span class="label">这些变化触发的提醒</span>
+          <div class="stack" id="intelAlerts" style="gap:8px"></div>
+          <details class="why lv2" data-k="lastrun"><summary><span>上次自动重跑发现了什么（演示）</span></summary><div class="body"><div class="stack" id="runAlerts" style="gap:8px"></div></div></details>
+          <details class="why lv2" data-k="howrun"><summary><span>真正的重跑是怎么跑的</span></summary><div class="body small">
+            <p>每周一 9 点定时执行 <span class="num">node agent/run.js</span>：检索 → 便宜模型抽证据（核对原文引文）→ 强模型判分 → 和上一期 diff。</p>
+            <p>对手某维度降 0.5 分以上或总分降 3 分以上，推送「机会」到飞书或企业微信群；升 0.5 分以上推送「威胁」；证据失效变为未知推送「复核」。</p>
+            <p>只想重跑一家：<span class="num">node agent/run.js --only=shoplazza</span>。</p>
+          </div></details>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 第三层：每家公司 -->
+  <section id="companies" aria-labelledby="co-h">
+    <div class="sec-head"><h2 id="co-h">每家公司的证据</h2><span class="hint">点开公司 → 维度 → 证据和来源</span></div>
+    <div class="co-list" id="coList"></div>
+    <p class="small muted" id="listNote"></p>
+  </section>
+
+  <!-- 第四层：方法 -->
+  <section id="method" aria-labelledby="method-h">
+    <div class="sec-head"><h2 id="method-h">方法、成本与局限</h2></div>
+    <div class="method">
+      <details class="why" data-k="m-fw"><summary><span><b>评分框架</b>：六个维度从哪来，Meta 的公开信号</span></summary><div class="body">
+        <div class="scroll"><table class="mini" id="fwTable"></table></div>
+        <span class="label">Meta 在看什么</span>
+        <ul class="plain small" id="signals"></ul>
+      </div></details>
+      <details class="why" data-k="m-pipe"><summary><span><b>模型编排</b>：哪一步用便宜模型，哪一步用强模型，怎么防编造</span></summary><div class="body">
+        <div class="step"><span class="n">1</span><p><b>检索</b>：每家公司 × 每个维度 1 条查询，加名单里的种子链接。用搜索 API，不用大模型。</p></div>
+        <div class="step"><span class="n">2</span><p><b>抽取（便宜模型）</b>：逐页读正文，只抽事实，每条必须带原文引文。程序核对引文确实出现在网页里，对不上直接丢弃。</p></div>
+        <div class="step"><span class="n">3</span><p><b>判分（强模型）</b>：每家公司调用一次，按评分细则打分，只能引用第 2 步留下的证据。没证据的维度强制为「未知」。</p></div>
+        <div class="step"><span class="n">4</span><p><b>汇总（纯代码）</b>：加权、排名、diff、提醒。不用模型，结果可复算。</p></div>
+      </div></details>
+      <details class="why" data-k="m-cost"><summary><span><b>成本</b>：<span id="costPeek"></span></span></summary><div class="body">
+        <div class="kv" id="costKv"></div>
+        <p class="hint">单价是假设值（元/百万 token：便宜模型 入 1 出 4，强模型 入 20 出 80；检索 0.06 元/次），按实际供应商改 lib/score.js 的 DEFAULT_PRICING。</p>
+      </div></details>
+      <details class="why" data-k="m-comp"><summary><span><b>合规</b>：模型可换国产或 Azure OpenAI</span></summary><div class="body small">
+        <ul class="plain">
+          <li>模型接口走 OpenAI 兼容协议，改环境变量即可切到国产模型（如 DeepSeek、通义千问），数据不出境。</li>
+          <li>也支持 Azure OpenAI。长虹佳华本身分销 Azure OpenAI，这套工具可以跑在自家云资源上，顺带做成客户案例。</li>
+          <li>只采集公开网页，不登录、不绕过反爬；证据保存原文链接和访问日期，便于审计。</li>
+        </ul>
+      </div></details>
+      <details class="why" data-k="m-lim"><summary><span><b>局限</b>：哪些地方需要人来校准</span></summary><div class="body small">
+        <ul class="plain">
+          <li>四家都是非上市民企，资金和合规大量「未知」，这两维权重最高，需要销售渠道或 Meta 渠道经理补信息。</li>
+          <li>公司自述可能与事实不符，比如宜客的客户数和人员规模对不上，已降置信度。</li>
+          <li>实体消歧：「领拓」有境内外两个主体，「龙商」品牌和法人不同名，新增公司时需人工确认。</li>
+          <li>「微软独家技术」「微软广告核心代理」只有内部口径，没找到署名来源，未计入评分。</li>
+          <li>权重还没用已知结果回测，初始值是推理得出，需业务负责人拍板。</li>
+          <li>v1 证据由人工按 Agent 规则整理；在线流水线已写好并有测试，但还没用真实 API key 跑过。</li>
+        </ul>
+      </div></details>
+    </div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+/*__SCORE_JS__*/
+</script>
+<script>
+const DATA = /*__DATA__*/;
+</script>
+<script>
+(function () {
+  const { framework: FW, run: RUN, prev: PREV } = DATA;
+  const DIMS = FW.dimensions;
+  const DIM = Object.fromEntries(DIMS.map((d) => [d.id, d]));
+  const SELF = 'changhong';
+  const TODAY = new Date().toISOString().slice(0, 10);
+
+  const defaults = () => ({
+    weights: Object.fromEntries(DIMS.map((d) => [d.id, d.weight])),
+    mode: 'conservative',
+    included: RUN.companies.map((c) => c.id),
+    extra: [],
+    intel: [],
+    tab: 'mine',
+  });
+  let S = defaults();
+  const open = new Set();
+  const KEY = 'radar-state-v2';
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved) {
+      S = { ...S, ...saved, weights: { ...S.weights, ...saved.weights } };
+      (saved.open || []).forEach((k) => open.add(k));
+    }
+  } catch (e) { /* 存储不可用就用默认值 */ }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ ...S, open: [...open] })); } catch (e) {} };
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmt = (x) => (x == null ? '未知' : String(Math.round(x * 10) / 10));
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const isOpen = (k) => (open.has(k) ? ' open' : '');
+  const why = (k, summary, body, cls = '') => `<details class="why ${cls}" data-k="${esc(k)}"${isOpen(k)}><summary>${summary}</summary><div class="body">${body}</div></details>`;
+
+  // ---------- 数据：原始 + 新增公司 + 人工情报 ----------
+  function placeholder(e) {
+    return {
+      id: e.id, name: e.name, short: e.name, role: 'candidate', added: true,
+      positioning: '新加入名单，尚未采集', strategy: '', risks: ['到「市场新信息」录入情报，或跑一次 Agent 采集'],
+      dims: Object.fromEntries(DIMS.map((d) => [d.id, { score: null, confidence: '低', rationale: '尚未采集。', evidence: [] }])),
+      evidence: [],
+    };
+  }
+  function universe(withIntel) {
+    const list = JSON.parse(JSON.stringify([...RUN.companies, ...S.extra.map(placeholder)]));
+    if (!withIntel) return list;
+    S.intel.forEach((it, i) => {
+      const c = list.find((x) => x.id === it.co);
+      if (!c) return;
+      const id = `intel-${i}`;
+      c.evidence.push({ id, dim: it.dim, claim: it.note, url: it.url || '', source: '人工录入情报', published: it.date, accessed: it.date, confidence: '中', read: '人工录入' });
+      c.dims[it.dim] = { score: it.score, confidence: '中', rationale: `人工录入（${it.date}）：${it.note}`, evidence: [id] };
+    });
+    return list;
+  }
+  const activeOf = (list, ids) => list.filter((c) => ids.includes(c.id));
+  const current = () => activeOf(universe(true), S.included);
+  const baseline = () => RUN.companies;
+  const baseWeights = Object.fromEntries(DIMS.map((d) => [d.id, d.weight]));
+  const isChanged = () =>
+    S.intel.length || S.mode !== 'conservative' || S.extra.length ||
+    S.included.length !== RUN.companies.length || DIMS.some((d) => S.weights[d.id] !== d.weight);
+
+  // ---------- 小部件 ----------
+  function heat(score) {
+    if (score == null) return '';
+    const t = score / 5;
+    return `background: color-mix(in srgb, var(--heat-5) ${Math.round(t * 85 + 5)}%, var(--heat-0)); color: ${t > 0.55 ? 'var(--sheet)' : 'var(--ink)'};`;
+  }
+  const cell = (s) => (s == null ? '<span class="cell unk">未知</span>' : `<span class="cell" style="${heat(s)}">${fmt(s)}</span>`);
+  const confTag = (c) => `<span class="tag ${c === '高' ? 'good' : c === '中' ? '' : 'warn'}">置信 ${esc(c)}</span>`;
+
+  function dimBars(dimId, list) {
+    const rows = [...list].sort((a, b) => (b.dims[dimId]?.score ?? -1) - (a.dims[dimId]?.score ?? -1));
+    return `<div class="dimbars">${rows.map((c) => {
+      const s = c.dims[dimId]?.score;
+      return `<span class="${c.role === 'self' ? 'me' : ''}">${esc(c.short)}</span>
+        <span class="t ${s == null ? 'unk' : ''}" title="${esc(c.short)} · ${esc(DIM[dimId].name)}：${fmt(s)}">${s == null ? '' : `<i style="width:${s * 20}%"></i>`}</span>
+        <span class="v">${fmt(s)}</span>`;
+    }).join('')}</div>`;
+  }
+
+  function evidenceList(c, dimId) {
+    const x = c.dims[dimId] || {};
+    const byId = Object.fromEntries(c.evidence.map((e) => [e.id, e]));
+    const evs = (x.evidence || []).map((id) => byId[id]).filter(Boolean);
+    if (!evs.length) return `<p class="small muted">${esc(c.short)}：没有找到公开证据，标为未知。</p>`;
+    return evs.map((e) => `<div class="ev"><b>${esc(c.short)}</b><span>${esc(e.claim)}</span>
+      <span class="src">${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.source)}</a>` : esc(e.source)} · 发布 ${esc(e.published || '未知')} · 访问 ${esc(e.accessed)} · ${esc(e.read)} · 置信 ${esc(e.confidence)}</span></div>`).join('');
+  }
+
+  // 维度深挖：所有公司在这一维的分数 → 理由 → 证据
+  function dimDrill(key, dimId, list, focus) {
+    const d = DIM[dimId];
+    const reasons = focus.map((c) => `<p class="small"><b>${esc(c.short)}</b> ${fmt(c.dims[dimId]?.score)} 分：${esc(c.dims[dimId]?.rationale || '')}</p>`).join('');
+    return `${dimBars(dimId, list)}${reasons}
+      ${why(`${key}-ev`, `<span>看证据和来源</span>`, focus.map((c) => evidenceList(c, dimId)).join(''), 'lv2')}
+      ${why(`${key}-rb`, `<span>「${esc(d.name)}」的打分标准和权重理由</span>`, rubric(d), 'lv2')}`;
+  }
+  function rubric(d) {
+    const sig = FW.meta_signals.filter((s) => (s.dims || []).includes(d.id));
+    return `<p class="small">权重 ${d.weight}：${esc(d.why_weight)}</p>
+      ${sig.map((s) => `<p class="small muted">Meta 信号：${esc(s.signal)}。${esc(s.why)} <a href="${esc(s.source)}" target="_blank" rel="noopener">来源</a></p>`).join('')}
+      <div class="rubric">${['5', '4', '3', '2', '1', 'null'].map((k) => `<b>${k === 'null' ? '未知' : k}</b><span>${esc(d.rubric[k])}</span>`).join('')}</div>`;
+  }
+
+  function contribTable(c, list, k) {
+    const ref = c.role === 'self' ? k.ranking.find((r) => r.id !== SELF) : k.self;
+    const mine = contributions(c, DIMS, S.weights, S.mode);
+    const theirs = ref ? contributions(ref.company, DIMS, S.weights, S.mode) : null;
+    const fill = UNKNOWN_VALUES[S.mode];
+    return `<div class="scroll"><table class="mini">
+      <tr><th>维度</th><th class="n">权重</th><th class="n">${esc(c.short)}</th><th class="n">贡献分</th>${theirs ? `<th class="n">${esc(ref.company.short)}</th>` : ''}</tr>
+      ${mine.map((m, i) => `<tr><td>${esc(m.dim.short)}</td><td class="n">${pct(m.weight)}</td>
+        <td class="n">${m.score == null ? `未知${fill == null ? '' : `→${fill}`}` : fmt(m.score)}</td><td class="n">${m.points}</td>
+        ${theirs ? `<td class="n">${theirs[i].points}</td>` : ''}</tr>`).join('')}
+      <tr class="sum"><td>总分</td><td></td><td></td><td class="n">${fmt(scoreCompany(c, DIMS, S.weights, S.mode).total)}</td>${theirs ? `<td class="n">${fmt(ref.total)}</td>` : ''}</tr>
+    </table></div>
+    <p class="hint">贡献分 = 权重 × 维度分 ÷ 5 × 100。${S.mode === 'exclude' ? '「剔除」模式下总分只按已知维度重新归一，所以不等于贡献分之和。' : ''}</p>`;
+  }
+
+  // ---------- 第一层 ----------
+  function renderHero(k, k0, list) {
+    const me = k.self;
+    if (!me) { $('headline').textContent = '名单里没有长虹佳华。'; return; }
+    let head = `${list.length} 家里，长虹佳华排第 ${me.rank}（${fmt(me.total)} 分）。`;
+    if (k.ahead.length) {
+      head += `${k.ahead.map((r) => `${r.company.short}（${fmt(r.total)}）`).join('、')}领先，差在${k.gaps.slice(0, 2).map((g) => `「${g.dim.short}」`).join('和') || '少数维度'}；长虹佳华赢在${k.strengths.slice(0, 2).map((s) => `「${s.dim.short}」`).join('和') || '—'}。`;
+    } else if (k.closest) {
+      head += `最近的对手是 ${k.closest.company.short}（${fmt(k.closest.total)}）`;
+      head += k.closest.high > me.total ? `，但它有 ${100 - k.closest.coverage}% 权重的信息查不到，补齐后可能反超。` : '，即使它查不到的维度全按满分也追不上。';
+    }
+    $('headline').textContent = head;
+
+    // 行动
+    const actions = [];
+    k.actions.forEach((a) => {
+      const p = k.perDim.find((x) => x.dim.id === a.dim.id);
+      const focus = [k.self.company, p.best?.company].filter(Boolean);
+      const reason = a.type === 'gap'
+        ? `长虹佳华在「${a.dim.name}」${fmt(p.mine)} 分，${p.best.company.short} ${fmt(p.best.score)} 分。这一维占权重 ${pct(normalizeWeights(DIMS, S.weights)[a.dim.id])}，差距折合总分约 ${fmt(p.weighted * 20)} 分，是最值得补的短板之一。`
+        : `长虹佳华在「${a.dim.name}」${fmt(p.mine)} 分，${p.best ? `对手最高 ${fmt(p.best.score)}（${p.best.company.short}）` : '对手都查不到'}。这是对手短期内补不上的长板，应该放进提案的第一页。`;
+      actions.push({ key: `act-${a.type}-${a.dim.id}`, tag: a.type === 'gap' ? ['bad', '补短板'] : ['good', '放大长板'], title: `${a.type === 'gap' ? '补' : '用好'}「${a.dim.short}」`, text: a.text, body: `<p class="small">${esc(reason)}</p>${dimDrill(`act-${a.dim.id}`, a.dim.id, list, focus)}` });
+    });
+    const small = list.filter((c) => ['lingtok', 'addragon'].includes(c.id));
+    if (small.length) {
+      actions.push({
+        key: 'act-coop-small', tag: ['', '竞合'], title: '把对手变成渠道',
+        text: `${small.map((c) => c.short).join('、')}有产业带中小客户、没有垫资能力。拿到一代后优先签为二级代理，长虹佳华出授信，快速做出 Meta 最看重的长尾增长。`,
+        body: `<p class="small">依据：它们的「客户结构」分数高，但「资金风控」查不到任何融资或财务信息；长虹佳华正好相反。</p>
+          <span class="label">客户结构</span>${dimBars('clients', list)}
+          <span class="label">资金风控</span>${dimBars('finance', list)}
+          ${why('act-coop-small-ev', '<span>看证据和来源</span>', small.map((c) => evidenceList(c, 'clients') + evidenceList(c, 'finance')).join(''), 'lv2')}`,
+      });
+    }
+    const shop = list.find((c) => c.id === 'shoplazza');
+    if (shop) {
+      actions.push({
+        key: 'act-coop-shop', tag: ['', '竞合'], title: '和店匠竞合',
+        text: '店匠是最强对手，但它是 SaaS，不是代投团队。可以提议做它的开户和授信后端：它出客户和数据，长虹佳华出资金和合规。',
+        body: `<p class="small">依据：店匠的「技术 AI」和「客户结构」领先，「资金风控」和「企业背景」落后长虹佳华；它不在 Meta 代理名单上，和 Meta 是技术生态伙伴关系。</p>
+          <span class="label">技术 AI</span>${dimBars('tech', list)}
+          <span class="label">资金风控</span>${dimBars('finance', list)}
+          ${why('act-coop-shop-ev', '<span>看证据和来源</span>', evidenceList(shop, 'tech') + evidenceList(shop, 'compliance'), 'lv2')}`,
+      });
+    }
+    $('actions').innerHTML = actions.map((a) => `<li>${why(a.key,
+      `<span><span class="tag ${a.tag[0]}">${a.tag[1]}</span> <span class="act-title">${esc(a.title)}</span><span class="act-text">${esc(a.text)}</span></span>`,
+      a.body)}</li>`).join('');
+
+    // 排名条
+    $('rankBars').innerHTML = k.ranking.map((r) => {
+      const c = r.company;
+      return `<div class="bar-row ${c.role === 'self' ? 'self' : ''}">${why(`rank-${c.id}`,
+        `<span class="bname">${esc(c.short)}</span>
+         <span class="bar-track" title="${esc(c.short)}：${fmt(r.total)} 分，区间 ${fmt(r.low)}–${fmt(r.high)}"><span class="bar-range" style="left:${r.low}%;width:${Math.max(0, r.high - r.low)}%"></span><span class="bar-fill" style="width:${r.total}%"></span></span>
+         <span class="bval">${fmt(r.total)}</span>`,
+        `${contribTable(c, list, k)}<p class="small"><button class="link" type="button" data-goto="co-${esc(c.id)}">看 ${esc(c.short)} 的全部证据</button></p>`)}</div>`;
+    }).join('');
+
+    // 长板短板
+    const sw = [
+      ...k.strengths.map((s) => ({ s, good: true })),
+      ...k.gaps.map((s) => ({ s, good: false })),
+    ];
+    $('sw').innerHTML = sw.map(({ s, good }) => why(`sw-${s.dim.id}`,
+      `<span><span class="tag ${good ? 'good' : 'bad'}">${good ? '长板' : '短板'}</span> <b>${esc(s.dim.short)}</b> <span class="small muted">${fmt(s.mine)} 分，${s.best ? (s.best.score === s.mine ? `与${esc(s.best.company.short)}持平` : `对手最高 ${fmt(s.best.score)}（${esc(s.best.company.short)}）`) : '对手都查不到'}</span></span>`,
+      dimDrill(`sw-${s.dim.id}`, s.dim.id, list, [k.self.company, s.best?.company].filter(Boolean)))).join('');
+
+    // 和初始结论比
+    const box = $('changeBox');
+    const echoes = document.querySelectorAll('.change.echo');
+    if (!isChanged()) { box.hidden = true; echoes.forEach((x) => (x.hidden = true)); $('stateTag').innerHTML = '<span class="tag ghost">初始结论</span>'; return; }
+    box.hidden = false;
+    $('stateTag').innerHTML = '<span class="tag warn">已调整</span>';
+    const out = [];
+    const b = k0.self;
+    const mv = (o, n) => (o.rank === n.rank ? `仍第 ${n.rank}` : `第 ${o.rank} → 第 ${n.rank}`) + `，${fmt(o.total)} → ${fmt(n.total)} 分`;
+    if (b.rank !== me.rank || b.total !== me.total) out.push(`长虹佳华：${mv(b, me)}`);
+    k.ranking.filter((r) => r.id !== SELF).forEach((r) => {
+      const o = k0.ranking.find((x) => x.id === r.id);
+      if (!o) out.push(`${r.company.short}：新加入，第 ${r.rank}`);
+      else if (o.rank !== r.rank || o.total !== r.total) out.push(`${r.company.short}：${mv(o, r)}`);
+    });
+    k0.ranking.filter((o) => !k.ranking.some((r) => r.id === o.id)).forEach((o) => out.push(`${o.company.short}：移出名单`));
+    const t0 = k0.actions.map((a) => a.type + a.dim.id), t1 = k.actions.map((a) => a.type + a.dim.id);
+    k.actions.filter((a) => !t0.includes(a.type + a.dim.id)).forEach((a) => out.push(`新增建议：${a.type === 'gap' ? '补' : '用好'}「${a.dim.short}」`));
+    k0.actions.filter((a) => !t1.includes(a.type + a.dim.id)).forEach((a) => out.push(`不再优先：${a.type === 'gap' ? '补' : '用好'}「${a.dim.short}」`));
+    const causes = [];
+    DIMS.filter((d) => S.weights[d.id] !== d.weight).forEach((d) => causes.push(`权重「${d.short}」${d.weight}→${S.weights[d.id]}`));
+    if (S.mode !== 'conservative') causes.push(`未知处理改为「${FW.unknown_modes[S.mode].label}」`);
+    RUN.companies.filter((c) => !S.included.includes(c.id)).forEach((c) => causes.push(`去掉${c.short}`));
+    S.extra.filter((e) => S.included.includes(e.id)).forEach((e) => causes.push(`加入${e.name}`));
+    S.intel.forEach((it) => causes.push(`情报：${universe(false).find((c) => c.id === it.co)?.short}「${DIM[it.dim].short}」→ ${fmt(it.score)}`));
+    box.innerHTML = `<div class="row"><span class="label">和初始结论相比</span><button class="btn ghost" type="button" id="resetTop">恢复初始</button></div>
+      ${out.length ? `<ul>${out.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p>排名和建议都没变，结论对这些调整不敏感。</p>'}
+      <p class="small muted">因为：${esc(causes.join('；'))}</p>`;
+    $('resetTop').onclick = reset;
+    echoes.forEach((x) => {
+      x.hidden = false;
+      x.innerHTML = `<div class="row"><span><span class="label">结论变了</span> ${esc(out.slice(0, 2).join('；') || '排名和建议没变')}${out.length > 2 ? ' 等' : ''}</span><button class="link" type="button" data-goto="verdict">回到结论看全部</button></div>`;
+    });
+  }
+
+  // ---------- 第二层 ----------
+  function renderControls() {
+    $('sliders').innerHTML = DIMS.map((d) => `
+      <div class="slider">
+        <label for="w-${d.id}">${esc(d.name)}</label>
+        <output id="o-${d.id}" for="w-${d.id}"></output>
+        <input type="range" id="w-${d.id}" min="0" max="50" step="1" value="${S.weights[d.id]}">
+        ${why(`wy-${d.id}`, `<span>为什么初始是 ${d.weight}？</span>`, rubric(d))}
+      </div>`).join('');
+    DIMS.forEach((d) => $('w-' + d.id).addEventListener('input', (e) => { S.weights[d.id] = +e.target.value; update(); }));
+    $('unknownMode').innerHTML = Object.entries(FW.unknown_modes).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
+    $('unknownMode').value = S.mode;
+    $('unknownMode').onchange = (e) => { S.mode = e.target.value; update(); };
+    $('calib').innerHTML = `<p>${esc(FW.calibration.how)}</p><p class="muted">现状：${esc(FW.calibration.status)}</p>`;
+    $('intelScore').innerHTML = ['5', '4.5', '4', '3.5', '3', '2.5', '2', '1.5', '1', '0.5', '0'].map((v) => `<option value="${v}">新分数 ${v}</option>`).join('');
+    $('intelDim').innerHTML = DIMS.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join('');
+    setTab(S.tab);
+  }
+
+  function renderRoster() {
+    const all = universe(false);
+    $('roster').innerHTML = all.map((c) => `
+      <label class="chip ${c.role === 'self' ? 'self' : ''}">
+        <input type="checkbox" id="in-${esc(c.id)}" data-id="${esc(c.id)}" ${S.included.includes(c.id) ? 'checked' : ''} ${c.role === 'self' ? 'disabled' : ''}>
+        ${esc(c.short)}${c.role === 'self' ? '（我方）' : ''}${c.added ? ' <span class="tag ghost">待采集</span>' : ''}
+      </label>`).join('');
+    $('roster').querySelectorAll('input').forEach((el) => el.addEventListener('change', (e) => {
+      const id = e.target.dataset.id;
+      S.included = e.target.checked ? [...S.included, id] : S.included.filter((x) => x !== id);
+      update();
+    }));
+    $('intelCo').innerHTML = all.map((c) => `<option value="${esc(c.id)}">${esc(c.short)}</option>`).join('');
+  }
+
+  function alertHtml(a, demo) {
+    const tag = { opportunity: ['good', '机会'], threat: ['bad', '威胁'], info: ['warn', '复核'] }[a.level];
+    return `<div class="alert ${a.level}"><span class="tag ${tag[0]}">${tag[1]}</span><span>${esc(a.text)}${demo ? ' <span class="tag ghost">演示</span>' : ''}</span></div>`;
+  }
+
+  function renderMarket() {
+    $('intelList').innerHTML = S.intel.length
+      ? `<span class="label">已录入</span>` + S.intel.map((it, i) => `<div class="ev"><b>${esc(universe(false).find((c) => c.id === it.co)?.short)} · ${esc(DIM[it.dim].short)} → ${fmt(it.score)}</b><span>${esc(it.note)}${it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener">来源</a>` : ''}</span><span class="src">${esc(it.date)} · <button class="link" type="button" data-del="${i}">撤销</button></span></div>`).join('')
+      : '';
+    $('intelList').querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => { S.intel.splice(+b.dataset.del, 1); update(); }));
+    const before = { companies: activeOf(universe(false), S.included) };
+    const after = { companies: current() };
+    const { alerts } = diffRuns(before, after, DIMS, S.weights, S.mode);
+    $('intelAlerts').innerHTML = alerts.length ? alerts.map((a) => alertHtml(a, false)).join('') : '<p class="small muted">还没有新情报。录入一条，看看提醒和结论怎么变。</p>';
+    const prev = { ...PREV, companies: PREV.companies.filter((c) => S.included.includes(c.id)) };
+    const r = diffRuns(prev, { companies: activeOf(RUN.companies, S.included) }, DIMS, S.weights, S.mode);
+    $('runAlerts').innerHTML = `<p class="hint">上一期（${esc(PREV.date)}）是模拟基线：复制本期证据后手工改了 3 个分数，只演示机制，不代表这些公司的真实变化。</p>` + r.alerts.map((a) => alertHtml(a, PREV.simulated)).join('');
+  }
+
+  function setTab(t) {
+    S.tab = t;
+    ['mine', 'market'].forEach((x) => {
+      $('tab-' + x).setAttribute('aria-selected', String(x === t));
+      $('pane-' + x).hidden = x !== t;
+    });
+  }
+
+  // ---------- 第三层 ----------
+  function renderCompanies(k, list) {
+    $('listNote').innerHTML = `名单核对：${esc(RUN.reference.meta_reseller_list_note)} <a href="${esc(RUN.reference.meta_reseller_list_url)}" target="_blank" rel="noopener">Meta 官网代理商页</a>`;
+    $('coList').innerHTML = k.ranking.map((r) => {
+      const c = r.company;
+      const dims = DIMS.map((d) => {
+        const x = c.dims[d.id] || {};
+        return why(`co-${c.id}-${d.id}`,
+          `<span class="dim-sum"><span class="name">${esc(d.name)}</span>${cell(x.score)}${confTag(x.confidence || '低')}</span>`,
+          `<p class="small">${esc(x.rationale || '')}</p>${evidenceList(c, d.id)}
+           ${why(`co-${c.id}-${d.id}-cmp`, '<span>和其他公司比</span>', dimBars(d.id, list), 'lv2')}`, 'lv2');
+      }).join('');
+      return `<div id="co-${esc(c.id)}">${why(`co-${c.id}`,
+        `<span class="co-sum"><span class="rk">${r.rank}</span><span><b>${esc(c.name)}</b>${c.role === 'self' ? ' <span class="tag">我方</span>' : ''}</span><span class="sc">${fmt(r.total)}</span>
+          <span class="pos">${esc(c.positioning || '')} · 信息覆盖 ${r.coverage}%</span>
+          <span class="cells">${DIMS.map((d) => `<span title="${esc(d.name)}">${cell(c.dims[d.id]?.score)}</span>`).join('')}</span></span>`,
+        `${c.entity_note ? `<p class="small muted">${esc(c.entity_note)}</p>` : ''}
+         ${c.strategy ? `<p class="small"><b>竞标打法</b>：${esc(c.strategy)}</p>` : ''}
+         ${(c.risks || []).length ? `<div><span class="label">风险与待核实</span><ul class="plain small">${c.risks.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+         <div>${dims}</div>`)}</div>`;
+    }).join('');
+  }
+
+  // ---------- 第四层 ----------
+  function renderMethod(n) {
+    $('fwTable').innerHTML = `<tr><th>维度</th><th class="n">权重</th><th>为什么</th></tr>` +
+      DIMS.map((d) => `<tr><td>${esc(d.name)}</td><td class="n">${d.weight}</td><td>${esc(d.why_weight)}</td></tr>`).join('');
+    $('signals').innerHTML = FW.meta_signals.map((s) => `<li><b>${esc(s.signal)}</b>：${esc(s.why)} <a href="${esc(s.source)}" target="_blank" rel="noopener">来源</a></li>`).join('');
+    const e = estimateCost(n, DIMS.length);
+    $('costPeek').textContent = `${n} 家公司单次约 ¥${e.yuan.total.toFixed(1)}，每周跑一次每月约 ¥${Math.round(e.yuan.total * 4.3)}`;
+    $('costKv').innerHTML = `
+      <span>检索 ${e.searches} 次</span><span class="v">¥${e.yuan.search.toFixed(2)}</span>
+      <span>便宜模型抽取 ${e.pages} 页（约 ${Math.round(e.tokens.cheapIn / 1000)}k token）</span><span class="v">¥${e.yuan.extract.toFixed(2)}</span>
+      <span>强模型判分 ${n} 次（约 ${Math.round(e.tokens.strongIn / 1000)}k token）</span><span class="v">¥${e.yuan.judge.toFixed(2)}</span>
+      <span class="sum">单次合计</span><span class="v sum">¥${e.yuan.total.toFixed(2)}</span>
+      <span class="muted">对照：全部用强模型</span><span class="v muted">¥${e.allStrongYuan.toFixed(2)}</span>
+      <span class="muted">模型费用节省</span><span class="v muted">${e.savedPct}%</span>`;
+  }
+
+  // ---------- 主循环 ----------
+  function update() {
+    const w = normalizeWeights(DIMS, S.weights);
+    DIMS.forEach((d) => { $('o-' + d.id).textContent = `${S.weights[d.id]} · ${pct(w[d.id])}`; });
+    const list = current();
+    const k = conclusions(list, DIMS, S.weights, S.mode, SELF);
+    const k0 = conclusions(baseline(), DIMS, baseWeights, 'conservative', SELF);
+    renderHero(k, k0, list);
+    renderMarket();
+    renderCompanies(k, list);
+    renderMethod(list.length);
+    save();
+  }
+
+  function reset() {
+    const tab = S.tab;
+    S = { ...defaults(), tab };
+    renderControls();
+    renderRoster();
+    update();
+  }
+
+  // 展开状态在重算后保留
+  document.addEventListener('toggle', (e) => {
+    const k = e.target?.dataset?.k;
+    if (!k) return;
+    e.target.open ? open.add(k) : open.delete(k);
+    save();
+  }, true);
+  // 「看证据」跳转：展开目标公司并滚过去
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-goto]');
+    if (!g) return;
+    const id = g.dataset.goto;
+    open.add(id);
+    const box = document.getElementById(id);
+    const d = id.startsWith('co-') ? box?.querySelector('details') : null;
+    if (d) d.open = true;
+    box?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+
+  $('tab-mine').onclick = () => { setTab('mine'); save(); };
+  $('tab-market').onclick = () => { setTab('market'); save(); };
+  $('addForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('addName').value.trim();
+    if (!name) return;
+    const id = 'x-' + Date.now().toString(36);
+    S.extra.push({ id, name });
+    S.included.push(id);
+    $('addName').value = '';
+    renderRoster();
+    update();
+  });
+  $('intelForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const note = $('intelNote').value.trim();
+    if (!note) return;
+    const co = $('intelCo').value;
+    if (!S.included.includes(co)) S.included.push(co);
+    S.intel.push({ co, dim: $('intelDim').value, score: +$('intelScore').value, note, url: $('intelUrl').value.trim(), date: TODAY });
+    $('intelNote').value = ''; $('intelUrl').value = '';
+    renderRoster();
+    update();
+  });
+  $('resetBtn').addEventListener('click', reset);
+
+  $('runDate').textContent = RUN.date;
+  $('foot').innerHTML = `数据方法：${esc(RUN.method)} 代码与数据：meta-agency-radar/（data/runs/${esc(RUN.run_id)}.json）。`;
+  renderControls();
+  renderRoster();
+  update();
+})();
+</script>

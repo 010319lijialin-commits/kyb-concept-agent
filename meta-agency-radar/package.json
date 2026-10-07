@@ -1,0 +1,15 @@
+{
+  "name": "meta-agency-radar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Meta 一级代理竞争力雷达：证据卡 + 可调权重评分 + 滚动 diff 提醒",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "node build.js",
+    "agent": "node agent/run.js",
+    "agent:offline": "node agent/run.js --offline",
+    "calibrate": "node agent/calibrate.js",
+    "test": "node --test test/*.test.js"
+  }
+}

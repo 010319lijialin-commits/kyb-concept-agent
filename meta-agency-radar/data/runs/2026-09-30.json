@@ -1,0 +1,133 @@
+{
+  "run_id": "2026-09-30",
+  "date": "2026-09-30",
+  "simulated": false,
+  "method": "v1：公开网页检索 + 人工逐条核对来源（Agent 流水线见 agent/）。每条证据标明是否读过原文；只有搜索摘要的证据置信度不高于「中」。",
+  "reference": {
+    "meta_reseller_list_url": "https://metaforbusiness.cn/resellers",
+    "meta_reseller_list_note": "2026-09-30 访问 Meta 海外营销官网代理商页，列出 10 家：GatherOne、蓝标传媒、YinoLink 易诺、雨果跨境、飞书深诺、猎豹移动、省广集团、维卓、钛动科技、熊猫新媒。第三方文章另列 HuntMobi（前海像样），官网页面本次未见，按官网为准，待人工复核。本次分析的 4 家都不在官网名单上。"
+  },
+  "companies": [
+    {
+      "id": "changhong",
+      "name": "长虹佳华控股有限公司",
+      "short": "长虹佳华",
+      "role": "self",
+      "entity_note": "港股 3991.HK；出海营销平台品牌 JiaLink（佳Link）",
+      "positioning": "国资上市的 ICT 分销商，以资金、授信和微软/云生态切入出海营销",
+      "strategy": "用分销业务的授信和回款能力做「敢垫资」的代理，叠加 Azure OpenAI 的 AIGC 素材能力。",
+      "risks": ["Meta 投放和海外中小卖家客户池几乎没有公开记录", "「微软独家技术」「微软广告核心代理」目前只有内部口径，公开资料未找到署名来源"],
+      "dims": {
+        "finance": { "score": 5, "confidence": "高", "rationale": "2025 年营收 438.26 亿港元、股东应占溢利 4.01 亿港元；分销主业本身就是授信和回款管理。", "evidence": ["ch1", "ch2"] },
+        "scale": { "score": 2, "confidence": "中", "rationale": "JiaLink 平台整合 Meta/Google/TikTok/Bing，但未见任何海外投放消耗或平台代理级别的公开数据。", "evidence": ["ch3", "ch4"] },
+        "clients": { "score": 2.5, "confidence": "中", "rationale": "客户基础是 ICT 企业渠道；跨境中小卖家覆盖未见证据。参加西部跨境电商博览会，可能有川渝产业带切入点。", "evidence": ["ch4", "ch5"] },
+        "tech": { "score": 4, "confidence": "中", "rationale": "分销 Azure OpenAI、Azure AI Studio；成为微软深圳出海中心首批服务商，做基于微软视觉模型的 AI 视频广告位。", "evidence": ["ch6", "ch5"] },
+        "compliance": { "score": 3.5, "confidence": "中", "rationale": "上市和国资内控是加分项，但没有任何 Meta 广告政策方面的记录。", "evidence": ["ch7"] },
+        "background": { "score": 5, "confidence": "高", "rationale": "港股上市，控股股东长虹集团/四川长虹，实际控制人绵阳市国资委。", "evidence": ["ch7", "ch1"] }
+      },
+      "evidence": [
+        { "id": "ch1", "dim": "finance", "claim": "2025 年营收约 438.26 亿港元（+9.6%），毛利率 3.19%，股东应占溢利约 4.01 亿港元（+5.69%）", "url": "https://www.163.com/dy/article/KPCMF07U05198ETO.html", "source": "网易号转载年度业绩", "published": "2026-03-31", "accessed": "2026-09-30", "confidence": "高", "read": "原文" },
+        { "id": "ch2", "dim": "finance", "claim": "ICT 企业产品分销营业额 161.05 亿港元（+13.68%），业务溢利 4.24 亿港元（-10.28%）", "url": "https://www.163.com/dy/article/KPCMF07U05198ETO.html", "source": "网易号转载年度业绩", "published": "2026-03-31", "accessed": "2026-09-30", "confidence": "高", "read": "原文" },
+        { "id": "ch3", "dim": "scale", "claim": "JiaLink 是长虹佳华旗下出海营销一站式服务平台，提供网红营销、Google、TikTok Ads、AI 视频广告等", "url": "https://www.chitdx-marketing.com/", "source": "JiaLink 官网（搜索摘要）", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "搜索摘要" },
+        { "id": "ch4", "dim": "clients", "claim": "年报称持续构建云生态服务平台及佳Link 智能营销平台，布局数字营销；未披露出海营销收入", "url": "https://www.163.com/dy/article/KPCMF07U05198ETO.html", "source": "网易号转载年度业绩", "published": "2026-03-31", "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "ch5", "dim": "clients", "claim": "佳Link 亮相第五届西部跨境电商博览会，展示出海营销方案", "url": "https://www.toutiao.com/article/7657386910331863571/", "source": "长虹佳华头条号（搜索摘要）", "published": null, "accessed": "2026-09-30", "confidence": "低", "read": "搜索摘要" },
+        { "id": "ch6", "dim": "tech", "claim": "长虹佳华分销的微软产品线包括 Azure OpenAI、Azure 机器学习、Azure AI Studio、认知服务", "url": "https://www.changhongit.com/brand/show-1085.html", "source": "长虹佳华官网微软品牌页", "published": null, "accessed": "2026-09-30", "confidence": "高", "read": "原文" },
+        { "id": "ch7", "dim": "background", "claim": "长虹集团、四川长虹等为长虹佳华控股股东组；绵阳市国资委持有长虹集团 90% 股权，为实际控制人", "url": "https://group.changhong.com/tzzgx_275/201609/t20160907_54651.html", "source": "长虹集团投资者关系（搜索摘要）", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "搜索摘要" }
+      ]
+    },
+    {
+      "id": "lingtok",
+      "name": "青岛领拓跨境电商运营有限公司",
+      "short": "领拓",
+      "role": "candidate",
+      "entity_note": "品牌「领拓国际 / LingTok」，境外主体 LingTok Limited；官网称青岛领拓为国内指定服务商",
+      "positioning": "TikTok 一代出身的效果营销公司，北方产业带（青岛、临沂、河南）中小卖家",
+      "strategy": "把 TikTok 一代的中小卖家池和 TikTok Shop 美区经验复制到 Meta，主打 Meta 最想要的长尾新客增长。",
+      "risks": ["无任何财务披露，垫资能力未知", "TikTok 单一平台依赖，Meta 投放记录未见"],
+      "dims": {
+        "finance": { "score": null, "confidence": "低", "rationale": "未找到融资、营收或注册资本信息。", "evidence": [] },
+        "scale": { "score": 3, "confidence": "中", "rationale": "2022 年起为 TikTok for Business 授权代理，连续拿到 TikTok 电商、先锋开拓等奖项；无 Meta 消耗数据。", "evidence": ["lt1", "lt2"] },
+        "clients": { "score": 4, "confidence": "中", "rationale": "自称累计服务 1 万+ 企业，6 个城市服务公司，临沂、河南是 Meta 华南代理覆盖较弱的北方产业带。", "evidence": ["lt3"] },
+        "tech": { "score": 2, "confidence": "低", "rationale": "只有「技术驱动、自研开发与系统集成」的宣传表述，未见具体产品。", "evidence": ["lt3"] },
+        "compliance": { "score": null, "confidence": "低", "rationale": "未见公开的处罚或政策类奖项；未见负面不等于合规好，不打分。", "evidence": [] },
+        "background": { "score": 1.5, "confidence": "中", "rationale": "民营企业，未上市，未见机构股东。", "evidence": ["lt3"] }
+      },
+      "evidence": [
+        { "id": "lt1", "dim": "scale", "claim": "2022 年起成为 TikTok for Business 授权代理商，专注游戏、应用、跨境电商的海外效果营销", "url": "https://www.amz123.com/lingtok", "source": "AMZ123 服务商页", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "lt2", "dim": "scale", "claim": "获 TikTok for Business 年度先锋开拓奖、年度电商经营合作伙伴奖、TikTok Shop 美区 POP 年度优秀合作伙伴等（2022-2025）", "url": "http://www.lingtok.net/about.html", "source": "领拓官网", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "lt3", "dim": "clients", "claim": "运营团队 150 人；累计服务 1 万+ 企业；青岛/深圳/杭州/广州/河南/临沂 6 家服务公司，另有厦门和美国加州办公室；称以技术驱动、自研开发与系统集成", "url": "http://www.lingtok.net/about.html", "source": "领拓官网（自述）", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" }
+      ]
+    },
+    {
+      "id": "addragon",
+      "name": "厦门龙商网络技术服务有限公司",
+      "short": "龙商",
+      "role": "candidate",
+      "entity_note": "品牌「龙商集团 / AdDragon」",
+      "positioning": "20 年的国内多平台广告代理，福建产业带客户池，正在把国内客户转成出海客户",
+      "strategy": "用国内十几个媒体平台的核心代理关系和 10 万级客户存量做出海转化，叠加 AIGC 工具和大模型服务。",
+      "risks": ["海外投放体量小（TikTok 侧公开数字为 300+ 中小客户）", "「国内外 AI 大模型中转服务」的合规边界需人工核实"],
+      "dims": {
+        "finance": { "score": null, "confidence": "低", "rationale": "未找到融资、营收信息；成立 20 年、300 人只能说明持续经营，不足以打分。", "evidence": [] },
+        "scale": { "score": 2.5, "confidence": "中", "rationale": "国内平台核心代理为主；2023 年起为 TikTok 授权代理，公开的出海数字是助力 300+ 中小客户。", "evidence": ["ld1", "ld2"] },
+        "clients": { "score": 4, "confidence": "中", "rationale": "累计服务客户 10 万+，覆盖厦门、泉州、福州（鞋服、茶、家居产业带）及东南亚。", "evidence": ["ld1"] },
+        "tech": { "score": 3, "confidence": "低", "rationale": "自述深耕 AI 大模型一体化服务，有企业级 AIGC 工具；未见产品细节或第三方认可。", "evidence": ["ld1"] },
+        "compliance": { "score": null, "confidence": "低", "rationale": "无公开证据。", "evidence": [] },
+        "background": { "score": 2, "confidence": "中", "rationale": "2006 年成立的民营企业，未上市。", "evidence": ["ld1"] }
+      },
+      "evidence": [
+        { "id": "ld1", "dim": "clients", "claim": "2006 年厦门成立，员工 300 余人，覆盖厦门、泉州、福州、深圳、香港及东南亚；累计服务客户超 10 万家；抖音、小红书、B站、腾讯、快手、TikTok 等平台核心代理；深耕 AI 大模型一体化服务，有企业级 AIGC 工具和国内外大模型中转服务", "url": "https://xm-ls.com/about.html", "source": "龙商官网（自述）", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "ld2", "dim": "scale", "claim": "2023 年起成为 TikTok for Business 授权代理商，已助力 300 多个中小企业客户通过 TikTok Shop 出海", "url": "https://www.amz123.com/addragon/introduction", "source": "AMZ123 服务商页", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" }
+      ]
+    },
+    {
+      "id": "ecoglobal",
+      "name": "宜客数字科技(深圳)有限公司",
+      "short": "宜客",
+      "role": "candidate",
+      "entity_note": "品牌「宜客跨境」，英文 ECO DIGITAL TECHNOLOGY；2023 年 8 月成立",
+      "positioning": "字节、阿里国际系团队创办的新锐全链路出海服务商，TikTok Shop 生态 + 东南亚节点",
+      "strategy": "以「营销 + 销售转化 + 履约」一体化和东南亚本地节点做差异化，走大厂团队背书路线。",
+      "risks": ["自述服务 22000+ 品牌，与成立 3 年、招聘页 20 人以下、注册资本 300 万的体量明显不匹配", "自称 Meta 官方授权代理，但不在 Meta 官网代理商名单上，表述需核实"],
+      "dims": {
+        "finance": { "score": 1, "confidence": "中", "rationale": "注册资本 300 万元，招聘平台显示 20 人以下，成立约 3 年，垫资能力有限。", "evidence": ["yk1"] },
+        "scale": { "score": 2, "confidence": "低", "rationale": "自称 TikTok 一代及 Google、Meta 授权代理，但无消耗或奖项证据。", "evidence": ["yk2"] },
+        "clients": { "score": 3, "confidence": "低", "rationale": "上海、广州、长沙、厦门分公司及印尼、马来西亚节点；客户数口径可疑，降一档置信。", "evidence": ["yk2"] },
+        "tech": { "score": 2, "confidence": "低", "rationale": "团队来自字节、阿里国际、华为云，但未见自研产品。", "evidence": ["yk2"] },
+        "compliance": { "score": 2, "confidence": "中", "rationale": "对外宣称的 Meta 资质与 Meta 官网名单不一致，属于表述风险。", "evidence": ["yk2", "ref1"] },
+        "background": { "score": 1, "confidence": "中", "rationale": "新设的港澳台投资有限公司，未见机构融资。", "evidence": ["yk1"] }
+      },
+      "evidence": [
+        { "id": "yk1", "dim": "finance", "claim": "成立于 2023 年 8 月，员工 20 人以下，注册资本 300 万元人民币，港澳台投资、非独资有限责任公司", "url": "https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm", "source": "智联招聘公司页", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "yk2", "dim": "scale", "claim": "自称 TikTok For Business 官方授权一级代理商、TikTok Shop 核心生态伙伴，Google 与 Meta 官方授权代理；服务小米、美的等 22000+ 品牌；上海/广州/长沙/厦门分公司，印尼/马来西亚服务节点；核心团队来自字节、阿里国际、华为云", "url": "https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm", "source": "智联招聘公司介绍（自述）", "published": null, "accessed": "2026-09-30", "confidence": "低", "read": "原文" },
+        { "id": "ref1", "dim": "compliance", "claim": "Meta 海外营销官网代理商页未列出宜客", "url": "https://metaforbusiness.cn/resellers", "source": "Meta 海外营销官网", "published": null, "accessed": "2026-09-30", "confidence": "高", "read": "原文" }
+      ]
+    },
+    {
+      "id": "shoplazza",
+      "name": "深圳店匠科技有限公司",
+      "short": "店匠",
+      "role": "candidate",
+      "entity_note": "品牌「店匠 SHOPLAZZA」，独立站 SaaS；中国、加拿大、美国三地总部",
+      "positioning": "独立站 SaaS 平台，手握 65 万+ 商家和建站、像素、支付数据，想从工具商变成广告渠道",
+      "strategy": "平台内一键开户、充值、建广告，把 65 万商家的广告消耗直接留在自己体系内；用商家经营数据做风控，用 AI 建站和生图做素材。",
+      "risks": ["不是传统广告代理，缺少大规模代投团队的公开记录", "独立站卖家里仿牌、dropshipping 比例偏高，政策风险集中", "最近公开融资是 2022 年，之后盈利情况未知"],
+      "dims": {
+        "finance": { "score": 4, "confidence": "中", "rationale": "2022 年 1 月完成软银愿景二期领投的 1.5 亿美元 C1 轮；之后无公开财务。", "evidence": ["sl1", "sl2"] },
+        "scale": { "score": 3.5, "confidence": "中", "rationale": "平台支持 Meta 广告在线开户充值和自动同步商品，商家池大；但广告消耗未披露。", "evidence": ["sl3", "sl4"] },
+        "clients": { "score": 4.5, "confidence": "中", "rationale": "65 万+ 商户，几乎全是跨境独立站中小卖家，正是 Meta 长尾客户的核心盘。", "evidence": ["sl4", "sl5"] },
+        "tech": { "score": 5, "confidence": "中", "rationale": "自研 SaaS，Meta 多像素追踪和商品同步，自研多模态大模型、AI 建站、LazzaStudio 生图；入选 2025 AI Cloud 100 China。", "evidence": ["sl3", "sl4"] },
+        "compliance": { "score": 3.5, "confidence": "低", "rationale": "官网称获 Meta 官方中国区优质合作伙伴认证、受邀 Meta Conversations 2025；但独立站卖家群政策风险偏高。", "evidence": ["sl4", "sl6"] },
+        "background": { "score": 3, "confidence": "中", "rationale": "红杉中国、云九、软银愿景二期等机构投资的非上市公司。", "evidence": ["sl1", "sl2"] }
+      },
+      "evidence": [
+        { "id": "sl1", "dim": "finance", "claim": "2022-01-20 宣布完成 1.5 亿美元 C1 轮，软银愿景二期领投，阿布扎比 Chimera、Stepstone 跟投，云九、红杉中国等老股东加码；当时累计服务商户超 36 万家", "url": "https://m.ebrun.com/471366.html", "source": "亿邦动力", "published": "2022-01-20", "accessed": "2026-09-30", "confidence": "高", "read": "原文" },
+        { "id": "sl2", "dim": "finance", "claim": "2020-10-12 完成过千万美元 B 轮，云九资本、红杉中国继续投资", "url": "https://www.cifnews.com/article/79671", "source": "雨果网", "published": "2020-10-12", "accessed": "2026-09-30", "confidence": "高", "read": "原文" },
+        { "id": "sl3", "dim": "tech", "claim": "深度整合 Facebook 广告资产，支持在线开户充值、广告创建、商品自动同步、多像素追踪、受众管理", "url": "https://www.cifnews.com/service/shoplazza", "source": "雨果网服务商页（搜索摘要）", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "搜索摘要" },
+        { "id": "sl4", "dim": "clients", "claim": "2017 年成立；平台商户突破 65 万家；全球合作伙伴超 2000 家；获 Meta 官方中国区优质合作伙伴认证；自研多模态大模型、AI 建站、LazzaStudio 生图；获 2025 AI Cloud 100 China", "url": "https://www.shoplazza.cn/pages/about-us", "source": "店匠官网（自述）", "published": null, "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "sl5", "dim": "clients", "claim": "服务 65 万+ 全球卖家；受邀参加 Meta Conversations 2025（深圳，2025-07-03）并分享 WhatsApp 对话营销", "url": "https://www.shoplazza.cn/blog/2025-meta-conversations", "source": "店匠博客", "published": "2025-07", "accessed": "2026-09-30", "confidence": "中", "read": "原文" },
+        { "id": "sl6", "dim": "compliance", "claim": "Meta 官网代理商页未列出店匠；店匠当前与 Meta 的关系是技术/生态合作伙伴，而非 reseller", "url": "https://metaforbusiness.cn/resellers", "source": "Meta 海外营销官网", "published": null, "accessed": "2026-09-30", "confidence": "高", "read": "原文" }
+      ]
+    }
+  ]
+}
