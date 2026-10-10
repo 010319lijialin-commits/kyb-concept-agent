@@ -2,7 +2,7 @@
   "name": "meta-agency-radar",
   "version": "0.1.0",
   "private": true,
-  "description": "Meta 一级代理竞争力雷达：门槛 + 检查项评分 + 排名概率 + 滚动提醒",
+  "description": "Meta 一级代理竞争力雷达：红线核查 + 检查项评分 + 排名概率 + 滚动提醒",
   "type": "module",
   "engines": {
     "node": ">=18"

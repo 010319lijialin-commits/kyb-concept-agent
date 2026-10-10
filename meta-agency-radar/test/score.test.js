@@ -224,6 +224,15 @@ test('滚动 diff：对手红线核查变差、分数下降是机会，上升是
   assert.ok(!alerts.some((a) => a.company === '长虹佳华'));
 });
 
+test('滚动 diff：红线状态没变时，新出现的红线线索也要提醒', () => {
+  const curr = JSON.parse(JSON.stringify(run));
+  const lt = curr.companies.find((c) => c.id === 'lingtok');
+  lt.evidence.push({ id: 'rumor', type: 'internal', url: null, claim: '听说被列为失信被执行人' });
+  lt.checks.gx1 = { s: true, ev: ['rumor'], note: '人工情报：听说被列为失信被执行人' };
+  const { alerts } = diffRuns(run, curr, fw, null, 'conservative');
+  assert.ok(alerts.some((a) => a.company === '领拓' && a.text.includes('红线线索')));
+});
+
 test('层次分析法：一致的判断 CR≈0，权重符合比例', () => {
   const m = [
     [1, 2, 4],

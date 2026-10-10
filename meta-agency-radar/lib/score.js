@@ -499,6 +499,14 @@ export function diffRuns(prev, curr, fw, weights, mode, opts = {}) {
     }
     const before = scoreCompany(p, fw, weights, mode);
     const self = c.role === 'self';
+    // 新出现的红线线索：状态可能不变（比如本来就是待核），也要单独提醒
+    const RED = [['gx1', 'yes', 'gate_fin'], ['k1', 'no', 'gate_comp']];
+    for (const [cid, bad, gid] of RED) {
+      if (self || before.gates[gid].state !== now.gates[gid].state) continue;
+      const was = checkState(p.checks?.[cid], Object.fromEntries((p.evidence || []).map((e) => [e.id, e])), fw).state;
+      const is = checkState(c.checks?.[cid], Object.fromEntries((c.evidence || []).map((e) => [e.id, e])), fw).state;
+      if (is === bad && was !== bad) alerts.push({ level: 'opportunity', company: c.short, text: `${c.short}出现红线线索：${c.checks[cid].note || cid}。还没有官方证据，先派人核工商与司法；属实则出局。` });
+    }
     for (const g of fw.gates.list) {
       const a = before.gates[g.id].state, b = now.gates[g.id].state;
       if (a === b || self) continue;

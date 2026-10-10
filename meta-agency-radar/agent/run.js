@@ -60,7 +60,7 @@ const mc = monteCarlo(curr.companies, fw, null);
 const k = conclusions(curr.companies, fw, null, 'conservative', selfId);
 const S = fw.gates.states;
 
-const lines = [`# Meta 一代竞争力雷达 · ${curr.run_id}`, '', '| 名次 | 公司 | 已证实分 | 可能区间 | 资金红线 | 合规红线 | 排第一 | 前 2 | 踩红线出局 |', '|---|---|---|---|---|---|---|---|---|'];
+const lines = [`# Meta 一代竞争力雷达 · ${curr.run_id}`, '', '| 名次 | 公司 | 已证实分 | 可能区间 | 资金红线 | 合规红线 | 排第一 | 前 2 | 出局 |', '|---|---|---|---|---|---|---|---|---|'];
 for (const r of ranking) {
   const p = mc[r.id];
   lines.push(`| ${r.rank} | ${r.company.short}${r.company.role === 'self' ? '（我方）' : ''} | ${r.total} | ${r.low}–${r.high} | ${S[r.gates.gate_fin.state].label} | ${S[r.gates.gate_comp.state].label} | ${pct(p.pFirst)} | ${pct(p.pTop2)} | ${pct(p.pOut)} |`);

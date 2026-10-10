@@ -80,7 +80,7 @@ ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 </style>
 <figure class="arch" style="margin:0">
   <div class="scrollbox">
-  <svg viewBox="0 0 1160 540" role="img" aria-label="雷达的产品架构：数据源经过 Agent 流水线写入证据台账，评分引擎用纯代码读取证据和评估框架算出门槛、分数、概率和提醒，输出到页面、简报和飞书；模型只出现在抽取和判断检查项两步，人工复核和新情报写回证据台账。">
+  <svg viewBox="0 0 1160 540" role="img" aria-label="雷达的产品架构：数据源经过 Agent 流水线写入证据台账，评分引擎用纯代码读取证据和评估框架算出红线核查、分数、概率和提醒，输出到页面、简报和飞书；模型只出现在抽取和判断检查项两步，人工复核和新情报写回证据台账。">
     <defs>
       <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -142,13 +142,13 @@ ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 
     <!-- 评分引擎 -->
     <rect class="n-code" x="710" y="72" width="210" height="46" rx="5"/>
-    <text class="t" x="722" y="91">门槛判定</text><text class="s" x="722" y="108">6 种状态，查不到 ≠ 通过</text>
+    <text class="t" x="722" y="91">红线核查</text><text class="s" x="722" y="108">官方证据才出局，查不到 ≠ 通过</text>
     <rect class="n-code" x="710" y="130" width="210" height="46" rx="5"/>
     <text class="t" x="722" y="149">检查项打分</text><text class="s" x="722" y="166">无 A 级证据封顶 3.5</text>
     <rect class="n-code" x="710" y="188" width="210" height="46" rx="5"/>
     <text class="t" x="722" y="207">加权总分</text><text class="s" x="722" y="224">已证实分 + 上限</text>
     <rect class="n-code" x="710" y="246" width="210" height="46" rx="5"/>
-    <text class="t" x="722" y="265">排名概率</text><text class="s" x="722" y="282">抽样 3000 次，含门槛出局</text>
+    <text class="t" x="722" y="265">排名概率</text><text class="s" x="722" y="282">抽样 3000 次，含出局概率</text>
     <rect class="n-code" x="710" y="304" width="210" height="46" rx="5"/>
     <text class="t" x="722" y="323">翻盘条件 · 对比上期</text><text class="s" x="722" y="340">生成机会 / 威胁提醒</text>
     <line class="ln" x1="815" y1="118" x2="815" y2="128" marker-end="url(#ah)"/>
@@ -179,7 +179,7 @@ ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
     <!-- 评估框架 -->
     <rect class="n-store" x="260" y="412" width="660" height="50" rx="5"/>
     <text class="t" x="590" y="433" text-anchor="middle">评估框架 framework.json</text>
-    <text class="s" x="590" y="451" text-anchor="middle">维度 · 检查项 · 门槛规则 · 证据分级 · 权重（页面里可调，两两比较法定权）</text>
+    <text class="s" x="590" y="451" text-anchor="middle">维度 · 检查项 · 红线规则 · 证据分级 · 权重（页面里可调，两两比较法定权）</text>
     <line class="ln" x1="375" y1="412" x2="375" y2="366" marker-end="url(#ah)"/><text class="lb" x="383" y="394">检查项清单</text>
     <line class="ln" x1="815" y1="412" x2="815" y2="352" marker-end="url(#ah)"/><text class="lb" x="823" y="390">规则 · 权重</text>
 
@@ -199,12 +199,12 @@ ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
     <rect class="n-data plan" x="650" y="496" width="18" height="12" rx="2"/><text class="lb" x="674" y="506">虚线：规划中</text>
   </svg>
   </div>
-  <figcaption>模型只出现在「抽取事实」和「判断检查项」两步，而且只回答检查项是否成立；门槛、打分、概率、翻盘条件和提醒全部由代码计算，同一份代码也在页面里运行，所以调权重、录情报时结论能实时重算。人工录入的情报和复核后的结论写回证据台账，下一次重跑在此基础上进行。虚线是规划中的校准闭环。</figcaption>
+  <figcaption>模型只出现在「抽取事实」和「判断检查项」两步，而且只回答检查项是否成立；红线核查、打分、概率、翻盘条件和提醒全部由代码计算，同一份代码也在页面里运行，所以调权重、录情报时结论能实时重算。人工录入的情报和复核后的结论写回证据台账，下一次重跑在此基础上进行。虚线是规划中的校准闭环。</figcaption>
 </figure>
 </div>
   <div class="cols">
     <div class="card"><h2>模型只做两件事</h2><ul><li>便宜模型抽取事实，每条必须带原文引文，程序核对引文确实在网页里。</li><li>强模型只回答检查项「成立 / 不成立 / 查不到」，并列出依据；没有证据的结论自动改成「查不到」。</li></ul></div>
-    <div class="card"><h2>代码负责所有结论</h2><ul><li>来源分级、门槛、打分、证据封顶、排名概率、翻盘条件、提醒都是规则代码，结果可以复算。</li><li>同一份引擎在页面里运行，调权重、增减公司、录情报时结论实时重算。</li></ul></div>
+    <div class="card"><h2>代码负责所有结论</h2><ul><li>来源分级、红线核查、打分、证据封顶、排名概率、翻盘条件、提醒都是规则代码，结果可以复算。</li><li>同一份引擎在页面里运行，调权重、增减公司、录情报时结论实时重算。</li></ul></div>
     <div class="card"><h2>人在闭环里</h2><ul><li>销售录入的情报、复核确认的结论写回证据台账。</li><li>权重由业务负责人在页面里调整或用两两比较法确定。</li><li>规划中：标准答案集评测模型判断；Meta 最终选择回流校准权重。</li></ul></div>
   </div>
 </div>
