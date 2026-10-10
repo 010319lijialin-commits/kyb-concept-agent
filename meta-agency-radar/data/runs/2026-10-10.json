@@ -1554,6 +1554,29 @@
       ]
     },
     {
+      "id": "compliance",
+      "title": "合规是 Meta 中国渠道最大的痛点，也是新代理的切入口",
+      "body": "Reuters 2025-12 依据 Meta 内部文件报道：2024 年 Meta 来自中国的广告收入约 180 亿美元，约 19% 来自诈骗、赌博等违规广告；Meta 回应称会扣违规过多代理的佣金，并已与部分违规代理解约。2026-07 美国监督机构 TTP 报告现任一代 GatherOne 投放大量违规广告。在这种压力下新增代理，Meta 会更看重能证明「管得住客户」的伙伴。长虹佳华有上市内控和国企合规的底子，但还没有广告政策合规的实操记录，这一项目前是查不到。",
+      "so": "路演单设一页「广告合规」：开户 KYC、素材预审、违规率目标和月报；先补一条可核实的合规实操记录。",
+      "sources": [
+        {
+          "label": "Fortune 转述 Reuters 调查（2025-12-15）",
+          "url": "https://fortune.com/2025/12/15/former-meta-integrity-chief-ad-fraud-epidemic-china-scams/",
+          "grade": "B"
+        },
+        {
+          "label": "BHRC 转述 Reuters 调查及 Meta 回应",
+          "url": "https://www.business-humanrights.org/en/latest-news/meta-allegedly-decides-to-accept-high-levels-of-fraudulent-chinese-ads-to-protect-revenue/",
+          "grade": "B"
+        },
+        {
+          "label": "TTP：GatherOne 违规广告报告（2026-07-26）",
+          "url": "https://www.techtransparencyproject.org/articles/metas-chinese-partner-behind-deluge-of-nudify-ads",
+          "grade": "B"
+        }
+      ]
+    },
+    {
       "id": "rebate",
       "title": "返点缩水，授信从「安全垫」变成「赚钱能力」",
       "body": "行业文章称 2025 年起 Meta 返点大幅下调，并与 KPI 完成、封户率挂钩，甚至可能取消（非官方，待核）；2025 年还有媒体报道 Meta 要求中国代理商垫付款项（代理商单方说法）。如果属实，做一代不能再指望返点，利润要靠授信账期、增值服务和工具，同时对代理商的资金要求更高。长虹佳华有成熟的授信回款体系，但分销业务本身已占用大量营运资金，能拿出多少资金做广告授信，是必须先算清的账。",

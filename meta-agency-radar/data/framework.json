@@ -170,7 +170,7 @@
           "id": "c2",
           "text": "以跨境中小卖家为主要客群",
           "role": "core",
-          "why": "对应 Meta 信号「奖励长尾客户增长」：一代的增量主要在中小卖家"
+          "why": "对应 Meta 信号「奖项奖励长尾客户增长」：一代的增量主要在中小卖家"
         },
         {
           "id": "c3",
@@ -219,9 +219,10 @@
       "id": "ops",
       "name": "投放运营与平台资质",
       "short": "投放资质",
-      "weight": 20,
-      "why_weight": "能不能把客户的钱稳定地投出去。没有公开消耗数据时，用其他平台的官方代理资质和奖项作代理指标。",
+      "weight": 15,
+      "why_weight": "官方代理商的基本职责是开户和定制化出海营销方案，能不能把客户的钱稳定投出去。没有公开消耗数据时，用其他平台的官方代理资质和奖项作代理指标；它更像基本功，候选人之间差别不大。",
       "signals": [
+        "s_role",
         "s_new"
       ],
       "checks": [
@@ -290,7 +291,7 @@
           "id": "t2",
           "text": "与广告平台有 API、像素或一键投放类对接",
           "role": "core",
-          "why": "对应 Meta 峰会「先用 AI 与自动化提效」：一键投放、API 对接直接作用于 Meta 投放"
+          "why": "对应 Meta 官方奖项「产品冠军」：奖励积极采用 Meta 广告产品和自动化提效的伙伴"
         },
         {
           "id": "t3",
@@ -412,11 +413,13 @@
       "id": "compliance",
       "name": "合规与风控",
       "short": "合规风控",
-      "weight": 15,
-      "why_weight": "Meta 单设「广告政策表现」奖项，行业报道称返点与封户率挂钩。公开信息最少的一维，最依赖人工补证据。",
+      "weight": 20,
+      "why_weight": "Meta 中国渠道最大的痛点是违规广告：Reuters 依据内部文件报道约 19% 的中国广告收入来自违规广告，Meta 回应会扣违规代理的佣金、与违规代理解约；现任一代也正被外部监督机构点名。新增代理时，能证明「管得住客户」的伙伴更受青睐。",
       "signals": [
-        "s_policy",
-        "s_rebate"
+        "s_fraud",
+        "s_watch",
+        "s_rebate",
+        "s_policy"
       ],
       "checks": [
         {
@@ -447,7 +450,7 @@
           "id": "k5",
           "text": "有广告政策合规的实操记录（政策类奖项、低违规证明）",
           "role": "core",
-          "why": "对应 Meta 信号「单设广告政策表现奖」：Meta 按代理商违规表现考核"
+          "why": "对应 Meta 的做法「按违规情况扣代理佣金、与违规代理解约」：Meta 按代理商的违规表现考核"
         }
       ],
       "queries": [
@@ -515,44 +518,71 @@
   ],
   "meta_signals": [
     {
-      "id": "s_credit",
-      "signal": "代理商替广告主垫资、承担坏账",
-      "why": "reseller 模式下代理商给广告主授信，坏账先落在代理商身上。",
-      "source": "https://www.wearesellers.com/question/79358",
-      "grade": "C"
+      "id": "s_fraud",
+      "signal": "Meta 按违规情况扣代理佣金、与违规代理解约",
+      "why": "Reuters 2025-12 依据 Meta 内部文件报道：2024 年来自中国的广告收入约 180 亿美元，约 19% 来自诈骗、赌博等违规广告；Meta 回应称会扣违规过多代理的佣金，并已与部分违规代理解约。Fortune、BHRC 两家转述，算双源印证。",
+      "source": "https://fortune.com/2025/12/15/former-meta-integrity-chief-ad-fraud-epidemic-china-scams/",
+      "source2": "https://www.business-humanrights.org/en/latest-news/meta-allegedly-decides-to-accept-high-levels-of-fraudulent-chinese-ads-to-protect-revenue/",
+      "grade": "A",
+      "published": "2025-12-15"
+    },
+    {
+      "id": "s_watch",
+      "signal": "现任一代的违规正被外部盯着",
+      "why": "美国监督机构 TTP 2026-07 报告：现任一代 GatherOne 投放数千条违规「脱衣」类 AI 应用广告，Bloomberg 跟进。新增代理时，Meta 承受的声誉压力更大。",
+      "source": "https://www.techtransparencyproject.org/articles/metas-chinese-partner-behind-deluge-of-nudify-ads",
+      "grade": "B",
+      "published": "2026-07-26"
+    },
+    {
+      "id": "s_role",
+      "signal": "官方代理商的职责：开户 + 定制化出海营销方案",
+      "why": "Meta 官方代理商页：「携手 Meta 官方代理商，获取全方位的定制化出海营销解决方案，且高效创建广告账户」。页面没有列出遴选标准。",
+      "source": "https://metaforbusiness.cn/resellers",
+      "grade": "A",
+      "published": "2026"
+    },
+    {
+      "id": "s_ai",
+      "signal": "奖项奖励积极采用 Meta 广告产品和自动化",
+      "why": "Meta 官方新闻（韩国市场，2025-12）：代理商奖设「产品冠军」，奖励积极采用 Meta 主要广告产品提升效果的伙伴，并称当年重点看「积极的技术采用和灵活协作」。大中华区 2026 峰会奖项也有「自动化测试项目伙伴」类（代理商自述，C 级）。用的是其他市场的官方说明，作参照。",
+      "source": "https://about.fb.com/ko/news/2025/12/meta-hosts-meta-agency-first-awards-2025/",
+      "grade": "A",
+      "published": "2025-12-10"
     },
     {
       "id": "s_tail",
-      "signal": "年度奖项反复奖励长尾客户增长、客户激活",
-      "why": "Meta 2025 代理商奖项有「规模化客户激活」「高潜客户增长」等。",
-      "source": "https://yinolink.com/view/516",
-      "grade": "B"
+      "signal": "年度奖项奖励长尾客户增长",
+      "why": "钛动科技在 Meta 2025 代理商峰会获「长尾客户营销策略创新实践卓越奖」「长尾高潜客户毕业升级卓越奖」（投资界转载，内容像公司通稿）。",
+      "source": "https://m.pedaily.cn/99discoveries/103068",
+      "grade": "B",
+      "published": "2025-02-27"
     },
     {
       "id": "s_policy",
       "signal": "单设广告政策表现奖",
-      "why": "「广告政策表现卓越奖」说明 Meta 按代理商的违规表现考核。",
+      "why": "只有现任一代 YinoLink 的自述，利益相关，按 C 级只作参考；同一方向的硬证据见「Meta 按违规情况扣代理佣金」。",
       "source": "https://yinolink.com/view/516",
-      "grade": "B"
+      "grade": "C"
     },
     {
-      "id": "s_ai",
-      "signal": "2026 峰会：先用 AI 与自动化提效",
-      "why": "大中华区负责人以「器术势道」讲能力建设，第一步是 AI 与自动化。",
-      "source": "https://yinolink.com/view/516",
-      "grade": "B"
+      "id": "s_credit",
+      "signal": "代理商替广告主垫资、承担坏账",
+      "why": "reseller 模式下代理商给广告主授信，坏账先落在代理商身上（问答社区，C 级）。",
+      "source": "https://www.wearesellers.com/question/79358",
+      "grade": "C"
     },
     {
       "id": "s_rebate",
       "signal": "返点缩水，并与 KPI、封户率挂钩",
-      "why": "行业文章称 2025 年起返点大幅下调，并与 KPI 完成和封户率挂钩（非官方，待核）。",
+      "why": "行业文章称 2025 年起返点大幅下调，并与 KPI 完成和封户率挂钩（非官方）。和违规挂钩这一点，Reuters 报道的 Meta 回应（扣违规代理佣金）可以印证；返点幅度仍待核。",
       "source": "https://www.baijing.cn/article/55546",
       "grade": "C"
     },
     {
       "id": "s_new",
       "signal": "新增名额稀缺，看重独特客户池",
-      "why": "上一次新增一代是 2023 年；行业传闻新增约 2 家（非官方）。",
+      "why": "上一次新增一代是 2023 年；行业传闻这次新增约 2 家。另有说法称 Meta 2026-07 重启招募，提出「长期成长思维、客户价值为本、开放共赢」三点要求，未找到官方原文。都按 C 级。",
       "source": "https://www.baijing.cn/article/55546",
       "grade": "C"
     },
@@ -712,7 +742,7 @@
     }
   ],
   "calibration": {
-    "weights": "站在 Meta 的位置，加一家一代的账是：带来的增量消耗 − 授信收不回来的损失 − 违规带来的政策和品牌风险 − 管理成本。权重看两件事：这一维对这笔账有多重要，以及候选人之间在这一维差别大不大。正式定权按四步：①管理层用两两比较法给初值（页面里可直接操作）；②给高度相关的维度降权，避免重复计分；③用现任一代作「选上」、同期未入选的同类公司作对照回测（agent/calibrate.js）；④权重随机抖动检验排名是否稳定。最后由业务负责人拍板并记版本。",
+    "weights": "站在 Meta 的位置，加一家一代的账是：带来的增量消耗 − 授信收不回来的损失 − 违规带来的政策和品牌风险 − 管理成本。权重看两件事：这一维对这笔账有多重要，以及候选人之间在这一维差别大不大。当前权重：客户增量 30、合规与风控 20、投放运营 15、财务与授信 15、技术与 AI 10、增长投入 10。正式定权按四步：①管理层用两两比较法给初值（页面里可直接操作）；②给高度相关的维度降权，避免重复计分；③用现任一代作「选上」、同期未入选的同类公司作对照回测（agent/calibrate.js）；④权重随机抖动检验排名是否稳定。最后由业务负责人拍板并记版本。",
     "judge": "模型只判断检查项是否成立，分数由代码算。上线前用人工核实过的检查项当标准答案，测模型判断的准确率；同一材料多次运行看分歧；两家模型交叉判断，不一致转人工；每次改提示词或换模型都重跑标准答案集。",
     "status": "v1.1 的检查项由人工按同一套规则判断；标准答案集、回测数据尚未建立。"
   }

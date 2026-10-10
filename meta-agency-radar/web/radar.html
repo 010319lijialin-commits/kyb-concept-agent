@@ -710,7 +710,7 @@ const DATA = /*__DATA__*/;
   function rubric(d) {
     const sig = FW.meta_signals.filter((s) => (d.signals || []).includes(s.id));
     return `<p class="small">初始权重 ${d.weight}：${esc(d.why_weight)}</p>
-      ${sig.map((s) => `<p class="small muted"><span class="grade ${s.grade}">${s.grade}</span> Meta 信号：${esc(s.signal)}。${esc(s.why)} <a href="${esc(s.source)}" target="_blank" rel="noopener">来源</a></p>`).join('')}
+      ${sig.map((s) => `<p class="small muted"><span class="grade ${s.grade}">${s.grade}</span> Meta 信号：${esc(s.signal)}。${esc(s.why)} <a href="${esc(s.source)}" target="_blank" rel="noopener">来源</a>${s.source2 ? ` · <a href="${esc(s.source2)}" target="_blank" rel="noopener">来源 2</a>` : ''}</p>`).join('')}
       <p class="small muted">检查项分值（满分 5，按核心 3 份 / 一般 2 份 / 次要 1 份分配）：</p>
       <ul class="plain small">${d.checks.map((c) => `<li><b class="num">${f2(checkPoints(d)[c.id])}</b> · ${esc(ROLES[c.role]?.label || '')} · ${esc(c.text)} <span class="muted">— ${esc(c.why || '')}</span></li>`).join('')}</ul>
       ${(d.groups || []).map((g) => `<p class="hint">同组：${esc(g.why)}</p>`).join('')}
@@ -735,7 +735,11 @@ const DATA = /*__DATA__*/;
     const n = k.ranking.length;
     let h = '';
     if (k.ahead.length) {
-      h += `按已证实的信息，${k.ahead.map((r) => `${r.company.short}（${f1(r.total)}）`).join('、')}领先长虹佳华（${f1(me.total)}），差在${k.gaps.slice(0, 2).map((g) => `「${g.dim.short}」`).join('和')}。`;
+      // 差在哪：只和领先者比，按加权差距排序
+      const top = k.ahead[0];
+      const wN = normalizeWeights(DIMS, S.weights);
+      const behind = DIMS.map((d) => ({ d, v: (pointOf(top.dims[d.id], S.mode) - pointOf(me.dims[d.id], S.mode)) * wN[d.id] })).filter((x) => x.v > 0).sort((x, y) => y.v - x.v);
+      h += `按已证实的信息，${k.ahead.map((r) => `${r.company.short}（${f1(r.total)}）`).join('、')}领先长虹佳华（${f1(me.total)}）${behind.length ? `，比${top.company.short}差在${behind.slice(0, 2).map((x) => `「${x.d.short}」`).join('和')}` : ''}。`;
     } else {
       h += `${n} 家里，长虹佳华按已证实的信息排第一（${f1(me.total)} 分）${k.nearest ? `，领先${k.nearest.company.short} ${f1(me.total - k.nearest.total)} 分` : ''}。`;
     }
