@@ -9,8 +9,12 @@ export const DEFAULT_UNCERTAINTY = {
   pB: 0.8, // 只有 B 级证据的检查项，按 80% 概率属实
   pNull: 0.5, // 查不到的检查项，按 50% 概率成立
   pAdverse: 0.25, // 查不到且有不利线索的检查项
-  sigma: 0.25, // 权重随机浮动幅度（对数正态）
+  sigma: 0.25, // 维度权重随机浮动幅度（对数正态）
+  sigmaCheck: 0.3, // 检查项分值随机浮动幅度（对数正态，维度内重新归一）
 };
+
+export const DIM_MAX = 5;
+export const ROLE_BASE = { core: 3, standard: 2, weak: 1 };
 
 // ---------- 证据 ----------
 
@@ -42,32 +46,74 @@ export function checkState(answer, evById, fw) {
   return { state: 'unknown', strong: false, adverse: !!answer?.adverse };
 }
 
+// ---------- 检查项分值 ----------
+
+// 维度内各检查项的分值：按份数比例分配满分 5。份数默认由角色定（核心 3 / 一般 2 / 次要 1），
+// 页面里业务负责人重新分配时写在 alloc 上。
+export function checkPoints(dim) {
+  const base = dim.checks.map((c) => Math.max(0, Number(c.alloc ?? ROLE_BASE[c.role] ?? c.points ?? 1) || 0));
+  const s = base.reduce((a, b) => a + b, 0) || 1;
+  return Object.fromEntries(dim.checks.map((c, i) => [c.id, (base[i] / s) * DIM_MAX]));
+}
+
+// 分档检查项：成立时按档位系数计分；没写档位时按最低档。
+export function tierOf(check, answer) {
+  if (!check.tiers?.length) return null;
+  const n = check.tiers.length;
+  const i = Number.isInteger(answer?.tier) ? Math.max(0, Math.min(n - 1, answer.tier)) : 0;
+  return { i, guessed: !Number.isInteger(answer?.tier), ...check.tiers[i] };
+}
+
+// 同组检查项（同一个事实可能同时满足）只全额计得分最高的一项，其余按 overlap 折算。
+export function groupedSum(dim, earned) {
+  const groups = dim.groups || [];
+  const grouped = new Set(groups.flatMap((g) => g.checks));
+  let total = 0;
+  for (const c of dim.checks) if (!grouped.has(c.id)) total += earned[c.id] || 0;
+  for (const g of groups) {
+    const v = g.checks.map((id) => earned[id] || 0).sort((a, b) => b - a);
+    total += (v[0] || 0) + (g.overlap ?? 0.5) * v.slice(1).reduce((a, b) => a + b, 0);
+  }
+  return total;
+}
+
+// 维度得分：分组折算后再按「全部成立」时的得分换算回满分 5，保证每个维度都是 0–5。
+export function dimRaw(dim, earned, pts = checkPoints(dim)) {
+  const full = groupedSum(dim, pts) || 1;
+  return Math.min(DIM_MAX, (groupedSum(dim, earned) / full) * DIM_MAX);
+}
+
 // ---------- 维度分 ----------
 
 export function dimScore(company, dim, fw) {
   const evById = Object.fromEntries((company.evidence || []).map((e) => [e.id, e]));
   const cap = fw.scoring.cap_without_strong_evidence;
-  let raw = 0, nullPts = 0, known = 0, total = 0, strongYes = false;
+  const pts = checkPoints(dim);
+  const lo = {}, hi = {};
+  let known = 0, strongYes = false;
   const items = dim.checks.map((c) => {
     const ans = company.checks?.[c.id];
     const st = checkState(ans, evById, fw);
-    total += c.points;
+    const p = pts[c.id];
+    const tier = st.state === 'yes' ? tierOf(c, ans) : null;
+    let earned = 0;
     if (st.state === 'yes') {
-      raw += c.points;
-      known += c.points;
+      earned = p * (tier?.f ?? 1);
+      lo[c.id] = hi[c.id] = earned;
+      known += p;
       if (st.strong) strongYes = true;
     } else if (st.state === 'no') {
-      known += c.points;
+      known += p;
     } else {
-      nullPts += c.points;
+      hi[c.id] = p;
     }
-    return { check: c, answer: ans || {}, ...st };
+    return { check: c, points: p, tier, earned, answer: ans || {}, ...st };
   });
+  const raw = r2(dimRaw(dim, lo, pts));
   const capped = !strongYes && raw > cap;
-  const lo = capped ? cap : raw;
-  const hi = Math.min(5, raw + nullPts);
-  const allUnknown = known === 0;
-  return { dim, items, raw, lo, hi: Math.max(hi, lo), mid: (lo + Math.max(hi, lo)) / 2, capped, strongYes, allUnknown, coverage: known / total };
+  const low = capped ? cap : raw;
+  const high = Math.max(low, r2(dimRaw(dim, hi, pts)));
+  return { dim, items, raw, lo: low, hi: high, mid: (low + high) / 2, capped, strongYes, allUnknown: known === 0, coverage: known / DIM_MAX };
 }
 
 export function pointOf(ds, mode) {
@@ -182,13 +228,17 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
   const gateP = (st) => o.gateP?.[st] ?? fw.gates.states[st].p;
 
   // 预先算好每家每个检查项的状态
+  const basePts = dims.map((d) => checkPoints(d));
   const prepared = companies.map((c) => {
     const evById = Object.fromEntries((c.evidence || []).map((e) => [e.id, e]));
     const g = gatesOf(c, fw, o.asOf);
     return {
       id: c.id,
       gp: gateP(g.gate_fin.state) * gateP(g.gate_comp.state),
-      dims: dims.map((d) => d.checks.map((ch) => ({ pts: ch.points, ...checkState(c.checks?.[ch.id], evById, fw) }))),
+      dims: dims.map((d) => d.checks.map((ch) => {
+        const st = checkState(c.checks?.[ch.id], evById, fw);
+        return { id: ch.id, f: st.state === 'yes' ? tierOf(ch, c.checks?.[ch.id])?.f ?? 1 : 1, ...st };
+      })),
     };
   });
 
@@ -196,22 +246,32 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
   for (let it = 0; it < o.n; it++) {
     const ws = base.map((b) => b * Math.exp(o.sigma * gauss()));
     const wsum = ws.reduce((a, b) => a + b, 0) || 1;
+    // 检查项分值也随机浮动：同一次抽样里所有公司用同一套分值
+    const pts = basePts.map((bp) => {
+      if (!o.sigmaCheck) return bp;
+      const j = Object.fromEntries(Object.entries(bp).map(([id, v]) => [id, v * Math.exp(o.sigmaCheck * gauss())]));
+      const s = Object.values(j).reduce((a, b) => a + b, 0) || 1;
+      for (const id in j) j[id] = (j[id] / s) * DIM_MAX;
+      return j;
+    });
     const alive = [];
     for (const p of prepared) {
       let total = 0;
       p.dims.forEach((checks, di) => {
-        let s = 0, strong = false;
+        const earned = {};
+        let strong = false;
         for (const ch of checks) {
           let inc = false;
           if (ch.state === 'yes') inc = ch.strong ? true : rnd() < o.pB;
           else if (ch.state === 'unknown') inc = rnd() < (ch.adverse ? o.pAdverse : o.pNull);
           if (inc) {
-            s += ch.pts;
+            earned[ch.id] = pts[di][ch.id] * ch.f;
             if (ch.strong || ch.state === 'unknown') strong = true;
           }
         }
+        let s = dimRaw(dims[di], earned, pts[di]);
         if (!strong && s > cap) s = cap;
-        total += (ws[di] / wsum) * Math.min(5, s) * 20;
+        total += (ws[di] / wsum) * s * 20;
       });
       stats[p.id].sum += total;
       stats[p.id].n += 1;
@@ -225,6 +285,70 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
   return Object.fromEntries(
     Object.entries(stats).map(([id, s]) => [id, { pFirst: s.first / o.n, pTop2: s.top2 / o.n, pOut: s.out / o.n, mean: r1(s.sum / s.n) }]),
   );
+}
+
+// ---------- 检查项分值换种给法，排序变不变 ----------
+
+// 只让检查项分值随机浮动（各维度内重新归一），证据和门槛不变，看已证实分的排序有多稳。
+export function checkWeightRobustness(companies, fw, weights, mode = 'conservative', opts = {}) {
+  const n = opts.n ?? 2000, sigma = opts.sigma ?? 0.5;
+  const rnd = mulberry32(opts.seed ?? 20261011);
+  const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+  const dims = fw.dimensions;
+  const w = normalizeWeights(dims, weights);
+  const cap = fw.scoring.cap_without_strong_evidence;
+  const basePts = dims.map((d) => checkPoints(d));
+  // 证据和判断不变，只有分值在变：先把每家每个检查项的状态算好
+  const prepared = companies.map((c) => ({ id: c.id, dims: dims.map((d) => dimScore(c, d, fw)) }));
+  const scoreWith = (p, pts) => {
+    let total = 0;
+    p.dims.forEach((ds, di) => {
+      const lo = {}, hi = {};
+      for (const it of ds.items) {
+        const id = it.check.id;
+        if (it.state === 'yes') lo[id] = hi[id] = pts[di][id] * (it.tier?.f ?? 1);
+        else if (it.state === 'unknown') hi[id] = pts[di][id];
+      }
+      let l = dimRaw(ds.dim, lo, pts[di]);
+      if (!ds.strongYes && l > cap) l = cap;
+      const h = Math.max(l, dimRaw(ds.dim, hi, pts[di]));
+      total += w[ds.dim.id] * pointOf({ lo: l, hi: h, mid: (l + h) / 2 }, mode) * 20;
+    });
+    return r1(total);
+  };
+  const order = (pts) => prepared.map((p) => ({ id: p.id, t: scoreWith(p, pts) })).sort((a, b) => b.t - a.t).map((x) => x.id);
+  const baseOrder = order(basePts);
+  const baseKey = baseOrder.join('>');
+  const orders = new Map();
+  const ranks = Object.fromEntries(companies.map((c) => [c.id, Array(companies.length).fill(0)]));
+  const ahead = {}; // ahead[a][b] = a 排在 b 前面的次数
+  companies.forEach((a) => (ahead[a.id] = Object.fromEntries(companies.map((b) => [b.id, 0]))));
+  for (let it = 0; it < n; it++) {
+    const pts = basePts.map((bp) => {
+      const j = Object.fromEntries(Object.entries(bp).map(([id, v]) => [id, v * Math.exp(sigma * gauss())]));
+      const s = Object.values(j).reduce((x, y) => x + y, 0) || 1;
+      for (const id in j) j[id] = (j[id] / s) * DIM_MAX;
+      return j;
+    });
+    const r = order(pts);
+    const key = r.join('>');
+    orders.set(key, (orders.get(key) || 0) + 1);
+    r.forEach((x, i) => {
+      ranks[x][i] += 1;
+      for (const y of r.slice(i + 1)) ahead[x][y] += 1;
+    });
+  }
+  const p = (k) => k / n;
+  const top2 = new Set(baseOrder.slice(0, 2));
+  const list = [...orders].sort((x, y) => y[1] - x[1]).map(([k, v]) => ({ ids: k.split('>'), p: p(v) }));
+  return {
+    n, sigma, baseOrder,
+    sameOrder: p(orders.get(baseKey) || 0),
+    sameTop2: list.filter((o) => o.ids.slice(0, 2).every((id) => top2.has(id))).reduce((x, o) => x + o.p, 0),
+    orders: list,
+    rankP: Object.fromEntries(Object.entries(ranks).map(([id, arr]) => [id, arr.map(p)])),
+    ahead: Object.fromEntries(Object.entries(ahead).map(([x, row]) => [x, Object.fromEntries(Object.entries(row).map(([y, v]) => [y, p(v)]))])),
+  };
 }
 
 // ---------- 翻盘条件 ----------
@@ -257,27 +381,34 @@ export function flips(selfS, rivalS, fw, weights, mode) {
 export function fastestPath(scored, need, fw, weights) {
   const w = normalizeWeights(fw.dimensions, weights);
   const cap = fw.scoring.cap_without_strong_evidence;
-  const state = Object.fromEntries(fw.dimensions.map((d) => [d.id, { raw: scored.dims[d.id].raw, strong: scored.dims[d.id].strongYes }]));
-  const lo = (s) => (s.strong ? Math.min(5, s.raw) : Math.min(cap, s.raw));
+  const state = Object.fromEntries(fw.dimensions.map((d) => [d.id, {
+    dim: d,
+    pts: checkPoints(d),
+    earned: Object.fromEntries(scored.dims[d.id].items.filter((it) => it.state === 'yes').map((it) => [it.check.id, it.earned])),
+    strong: scored.dims[d.id].strongYes,
+  }]));
+  const lo = (s) => Math.min(s.strong ? DIM_MAX : cap, dimRaw(s.dim, s.earned, s.pts));
   const pool = [];
   // 有「可执行的抓手」清单时只在清单里选（比如我方 30 天内能补的证据），否则在所有查不到的项里选
   const levers = scored.company?.levers;
   for (const d of fw.dimensions)
     for (const it of scored.dims[d.id].items)
-      if (it.state === 'unknown' && (!levers || levers[it.check.id])) pool.push({ dim: d, check: it.check, how: levers?.[it.check.id] });
+      // 分档的检查项按最低档估：补上证据至少能拿到的分
+      if (it.state === 'unknown' && (!levers || levers[it.check.id])) pool.push({ dim: d, check: it.check, points: it.points * (tierOf(it.check, {})?.f ?? 1), how: levers?.[it.check.id] });
   const steps = [];
   let acc = 0;
   while (pool.length && acc <= need) {
     let best = null;
     for (const [i, c] of pool.entries()) {
       const s = state[c.dim.id];
-      const gain = (Math.min(5, s.raw + c.check.points) - lo(s)) * w[c.dim.id] * 20;
+      const after = dimRaw(s.dim, { ...s.earned, [c.check.id]: c.points }, s.pts); // 核实成立后视为有强证据
+      const gain = (after - lo(s)) * w[c.dim.id] * 20;
       if (!best || gain > best.gain) best = { i, c, gain };
     }
     if (!best || best.gain <= 0) break;
     pool.splice(best.i, 1);
     const s = state[best.c.dim.id];
-    s.raw += best.c.check.points;
+    s.earned[best.c.check.id] = best.c.points;
     s.strong = true;
     acc += best.gain;
     steps.push({ dim: best.c.dim, check: best.c.check, how: best.c.how, gain: r1(best.gain) });
@@ -371,7 +502,17 @@ export function diffRuns(prev, curr, fw, weights, mode, opts = {}) {
     }
     for (const d of fw.dimensions) {
       const a = before.dims[d.id].lo, b = now.dims[d.id].lo;
-      if (self || Math.abs(a - b) < dimDrop) continue;
+      if (self || a === b) continue;
+      if (Math.abs(a - b) < dimDrop) {
+        // 变化不大但确实动了分：点名是哪个检查项
+        now.dims[d.id].items.forEach((it, i) => {
+          const was = before.dims[d.id].items[i];
+          if (it.earned === was.earned) return;
+          const gained = it.earned > was.earned;
+          alerts.push({ level: gained ? 'threat' : 'opportunity', company: c.short, text: `${c.short}「${d.name}」${gained ? '新增' : '失去'}一项：${it.check.text}（已证实分 ${a} → ${b}）${it.answer.note ? `。${it.answer.note}` : ''}` });
+        });
+        continue;
+      }
       alerts.push(b < a
         ? { level: 'opportunity', company: c.short, text: `${c.short}「${d.name}」已证实分从 ${a} 降到 ${b}。${PLAYBOOK[d.id]?.lead ?? ''}` }
         : { level: 'threat', company: c.short, text: `${c.short}「${d.name}」已证实分从 ${a} 升到 ${b}，关注它在这一项的动作。` });

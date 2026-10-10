@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rank, diffRuns, monteCarlo, conclusions, estimateCost, DEFAULT_PRICING } from '../lib/score.js';
+import { rank, diffRuns, monteCarlo, conclusions, estimateCost, checkWeightRobustness, DEFAULT_PRICING } from '../lib/score.js';
 import { ledger } from './llm.js';
 import { collectCompany } from './collect.js';
 import { judgeCompany } from './judge.js';
@@ -69,6 +69,8 @@ if (k.flip && k.nearest) {
   lines.push('', `## 和${k.nearest.company.short}之间`, '');
   lines.push(k.flip.gap > 0 ? `落后 ${k.flip.gap} 分。最快追平：${k.flip.checkPath.map((s) => `${s.how || s.check.text}（+${s.gain}）`).join('；')}` : `领先 ${-k.flip.gap} 分。`);
   for (const wf of k.flip.weightFlips.slice(0, 3)) lines.push(`- 「${wf.dim.name}」权重从 ${wf.from} 调到 ${wf.to}，两家排序互换`);
+  const rob = checkWeightRobustness(curr.companies, fw, null, 'conservative');
+  lines.push(`- 检查项分值换种给法（随机浮动 ${rob.n} 次）：排序和现在完全相同 ${pct(rob.sameOrder)}；我方排在${k.nearest.company.short}前面 ${pct(rob.ahead[selfId][k.nearest.id])}`);
 }
 
 let alerts = [];

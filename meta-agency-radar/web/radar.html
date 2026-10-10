@@ -249,6 +249,9 @@ button.link { font: inherit; font-size: 12px; background: none; border: 0; color
 .alert.opportunity { border-left: 4px solid var(--good); }
 .alert.threat { border-left: 4px solid var(--bad); }
 .alert.info { border-left: 4px solid var(--warn); }
+.alloc { display: grid; grid-template-columns: 1fr 60px 76px; gap: 6px 8px; align-items: center; }
+.alloc input { width: 60px; }
+.alloc output { white-space: nowrap; }
 .ahp { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; font-size: 13px; align-items: center; }
 
 /* 证据 */
@@ -398,6 +401,13 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
         <div id="flipBox" class="stack"></div>
       </div>
     </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h3>检查项分值换种给法，排序变不变</h3>
+        <button class="link" type="button" data-goto="adjust" data-open="alloc">去改检查项分值</button>
+      </div>
+      <div id="robBox" class="stack"></div>
+    </div>
   </section>
 
   <!-- 怎么打 -->
@@ -463,6 +473,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
           <span class="ctl-hint">拖动后会重算：顶部结论和四个数、排名表、证据强度、差距从哪来、翻盘条件。</span>
           <div class="stack" id="sliders" style="gap:14px"></div>
           <details class="why lv2" data-k="ahp"><summary><span>用两两比较法（层次分析法）定权重</span></summary><div class="body" id="ahpBox"></div></details>
+          <details class="why lv2" data-k="alloc" id="allocDetails"><summary><span>检查项分值：每个检查项值多少分 <span class="badge adj">可改份数</span></span></summary><div class="body" id="allocBox"></div></details>
         </div>
         <div class="stack" style="gap:18px">
           <div class="stack">
@@ -488,7 +499,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
       <div class="two">
         <div class="stack">
           <span class="label">录入一条新情报 <span class="badge adj">可录入</span></span>
-          <p class="small muted">比如销售听说某家拿到融资、被处罚、签下一个产业带。录入后等同一次重跑：检查项更新，分数、门槛、概率、提醒都跟着变。</p>
+          <p class="small muted">比如销售听说某家拿到融资、被处罚、签下一个产业带。录入后等同一次重跑：检查项更新，分数、门槛、概率、提醒都跟着变。分档的检查项（如客户规模、融资额）录入「成立」时按最低档计。</p>
           <form class="intel-form" id="intelForm">
             <select id="intelCo" aria-label="公司"></select>
             <select id="intelCheck" aria-label="检查项"></select>
@@ -561,6 +572,10 @@ const DATA = /*__DATA__*/;
   const GS = FW.gates.states;
   const TODAY = new Date().toISOString().slice(0, 10);
   const MC_N = 3000;
+  const ROB_N = 800;
+  const ROLES = FW.scoring.check_weights.roles;
+  const UNC_KEYS = ['pB', 'pNull', 'pAdverse', 'sigmaCheck'];
+  const f2 = (x) => (Math.round(x * 100) / 100).toFixed(2);
 
   const baseWeights = Object.fromEntries(DIMS.map((d) => [d.id, d.weight]));
   const defaults = () => ({
@@ -569,7 +584,8 @@ const DATA = /*__DATA__*/;
     included: RUN.companies.map((c) => c.id),
     extra: [],
     intel: [],
-    unc: { pB: DEFAULT_UNCERTAINTY.pB, pNull: DEFAULT_UNCERTAINTY.pNull, pAdverse: DEFAULT_UNCERTAINTY.pAdverse },
+    unc: { pB: DEFAULT_UNCERTAINTY.pB, pNull: DEFAULT_UNCERTAINTY.pNull, pAdverse: DEFAULT_UNCERTAINTY.pAdverse, sigmaCheck: DEFAULT_UNCERTAINTY.sigmaCheck },
+    alloc: {},
     scen: { slots: 'two', mix: 'unknown', ally: 'unknown' },
     econ: { spend: 3000, fx: 7.1, rebate: 1, service: 2, credit: 50, days: 45, fund: 4, bad: 0.5, team: 20, cost: 30 },
     vs: null,
@@ -577,12 +593,12 @@ const DATA = /*__DATA__*/;
   });
   let S = defaults();
   const open = new Set();
-  const KEY = 'radar-state-v3';
+  const KEY = 'radar-state-v4';
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (saved) {
       const d = defaults();
-      S = { ...d, ...saved, weights: { ...d.weights, ...saved.weights }, unc: { ...d.unc, ...saved.unc }, scen: { ...d.scen, ...saved.scen }, econ: { ...d.econ, ...saved.econ } };
+      S = { ...d, ...saved, weights: { ...d.weights, ...saved.weights }, unc: { ...d.unc, ...saved.unc }, alloc: { ...saved.alloc }, scen: { ...d.scen, ...saved.scen }, econ: { ...d.econ, ...saved.econ } };
       (saved.open || []).forEach((k) => open.add(k));
     }
   } catch (e) { /* 存储不可用时用默认值 */ }
@@ -591,7 +607,7 @@ const DATA = /*__DATA__*/;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const f1 = (x) => (x == null ? '—' : String(Math.round(x * 10) / 10));
-  const pct = (x) => `${Math.round(x * 100)}%`;
+  const pct = (x) => (x > 0.995 && x < 1 ? '>99%' : x > 0 && x < 0.005 ? '<1%' : `${Math.round(x * 100)}%`);
   const isOpen = (k) => (open.has(k) ? ' open' : '');
   const why = (k, summary, body, cls = '') => `<details class="why ${cls}" data-k="${esc(k)}"${isOpen(k)}><summary>${summary}</summary><div class="body">${body}</div></details>`;
   const gateChip = (g) => `<span class="gate ${g.state}" title="${esc(g.reason)}">${esc(GS[g.state].label)}</span>`;
@@ -617,8 +633,13 @@ const DATA = /*__DATA__*/;
   const current = () => pick(universe(true), S.included);
   const isChanged = () =>
     S.intel.length || S.mode !== 'conservative' || S.extra.length || S.included.length !== RUN.companies.length ||
-    DIMS.some((d) => S.weights[d.id] !== d.weight) ||
-    S.unc.pB !== DEFAULT_UNCERTAINTY.pB || S.unc.pNull !== DEFAULT_UNCERTAINTY.pNull || S.unc.pAdverse !== DEFAULT_UNCERTAINTY.pAdverse;
+    DIMS.some((d) => S.weights[d.id] !== d.weight) || uncChanged() || allocChanged();
+  const uncChanged = () => UNC_KEYS.some((k) => S.unc[k] !== DEFAULT_UNCERTAINTY[k]);
+  const allocChanged = () => Object.keys(S.alloc).length > 0;
+  // 检查项分值：页面里改过的份数写到框架上，评分引擎按份数比例分配每个维度的 5 分
+  function applyAlloc(alloc) {
+    DIMS.forEach((d) => d.checks.forEach((c) => { if (alloc?.[c.id] != null) c.alloc = alloc[c.id]; else delete c.alloc; }));
+  }
 
   // ---------- 小部件 ----------
   function heatBg(score) {
@@ -641,11 +662,12 @@ const DATA = /*__DATA__*/;
   }
   function checkList(company, dimId) {
     const evById = Object.fromEntries((company.evidence || []).map((e) => [e.id, e]));
-    return DIM[dimId].checks.map((c) => {
-      const a = company.checks?.[c.id] || {};
-      const st = checkState(a, evById, FW);
+    return dimScore(company, DIM[dimId], FW).items.map((it) => {
+      const c = it.check, a = it.answer;
       const evs = (a.ev || []).map((id) => evById[id]).filter(Boolean);
-      return `<div class="chk">${mark(company, c.id)}<span>${esc(c.text)}${a.note ? `<span class="hint" style="display:block">${esc(a.note)}</span>` : ''}${st.downgraded ? '<span class="hint" style="display:block">只有转引证据，按查不到处理</span>' : ''}${evs.map((e) => evLine(e)).join('')}</span><span class="num small muted">+${c.points}</span></div>`;
+      const tierLine = it.tier ? `<span class="hint" style="display:block">档位：${esc(it.tier.label)}${it.tier.f < 1 ? '（得一半）' : '（满分）'}${it.tier.guessed ? '，未注明档位，按最低档' : ''}</span>` : '';
+      const pts = it.state === 'yes' ? `+${f2(it.earned)}${it.earned < it.points ? `<span class="muted">/${f2(it.points)}</span>` : ''}` : `<span class="muted">${f2(it.points)}</span>`;
+      return `<div class="chk">${mark(company, c.id)}<span>${esc(c.text)} <span class="tag ghost" title="${esc(c.why || '')}">${esc(ROLES[c.role]?.label || '')}</span>${a.note ? `<span class="hint" style="display:block">${esc(a.note)}</span>` : ''}${tierLine}${it.downgraded ? '<span class="hint" style="display:block">只有转引证据，按查不到处理</span>' : ''}${evs.map((e) => evLine(e)).join('')}</span><span class="num small" title="这一项的分值 ${f2(it.points)}（维度满分 5）">${pts}</span></div>`;
     }).join('');
   }
   function dimBars(dimId, scoredList) {
@@ -661,14 +683,18 @@ const DATA = /*__DATA__*/;
     const sig = FW.meta_signals.filter((s) => (d.signals || []).includes(s.id));
     return `<p class="small">初始权重 ${d.weight}：${esc(d.why_weight)}</p>
       ${sig.map((s) => `<p class="small muted"><span class="grade ${s.grade}">${s.grade}</span> Meta 信号：${esc(s.signal)}。${esc(s.why)} <a href="${esc(s.source)}" target="_blank" rel="noopener">来源</a></p>`).join('')}
-      <p class="small muted">检查项（成立就加分，满分 5）：${d.checks.map((c) => `${esc(c.text)}（+${c.points}）`).join('；')}</p>`;
+      <p class="small muted">检查项分值（满分 5，按核心 3 份 / 一般 2 份 / 次要 1 份分配）：</p>
+      <ul class="plain small">${d.checks.map((c) => `<li><b class="num">${f2(checkPoints(d)[c.id])}</b> · ${esc(ROLES[c.role]?.label || '')} · ${esc(c.text)} <span class="muted">— ${esc(c.why || '')}</span></li>`).join('')}</ul>
+      ${(d.groups || []).map((g) => `<p class="hint">同组：${esc(g.why)}</p>`).join('')}`;
   }
 
   // ---------- 计算一次全部结论 ----------
-  function compute(companies, weights = S.weights, mode = S.mode, unc = S.unc) {
+  function compute(companies, weights = S.weights, mode = S.mode, unc = S.unc, alloc = S.alloc) {
+    applyAlloc(alloc);
     const k = conclusions(companies, FW, weights, mode, SELF);
     const mc = monteCarlo(companies, FW, weights, { n: MC_N, ...unc });
-    return { k, mc, scored: k.ranking };
+    const rob = checkWeightRobustness(companies, FW, weights, mode, { n: ROB_N });
+    return { k, mc, rob, scored: k.ranking };
   }
   let BASE = null; // 初始结论，算一次即可
 
@@ -693,7 +719,7 @@ const DATA = /*__DATA__*/;
     }
     const p = mc[SELF];
     h += `在这 ${n} 家里，长虹佳华排第一的概率约 ${pct(p.pFirst)}，排进前 2 约 ${pct(p.pTop2)}，因门槛出局约 ${pct(p.pOut)}。`;
-    if (k.flip && k.flip.gap > 0 && k.flip.closes && k.flip.checkPath.length) h += `补上${k.flip.checkPath.map((s) => `「${s.check.text.split('（')[0]}」`).join('和')}就能追平。`;
+    if (k.flip && k.flip.gap > 0 && k.flip.closes && k.flip.checkPath.length) h += `补上${k.flip.checkPath.map((s) => `「${s.check.text.split('（')[0]}」`).join('和')}就能反超。`;
     $('headline').textContent = h;
     $('headline').dataset.fk = 'headline';
 
@@ -768,7 +794,7 @@ const DATA = /*__DATA__*/;
     $('decide').innerHTML = `
       <li data-fk="decide-1"><b>路演主线</b>：当前情景下推荐「${esc(st.title)}」。名额数和客户结构一变，主线就要换（见「怎么打」）。</li>
       <li><b>是否启动结盟洽谈</b>${small.length ? `：和${esc(small.join('、'))}谈合作意向，路演时展示已锁定的增量客户` : ''}。</li>
-      <li><b>7 天内补齐内部数据</b>，指定负责人：${path.length ? path.map((s) => esc(s.how || s.check.text)).join('；') + '（补上就能追平）；' : ''}授信额度和坏账率。</li>`;
+      <li><b>7 天内补齐内部数据</b>，指定负责人：${path.length ? path.map((s) => esc(s.how || s.check.text)).join('；') + '（补上就能反超）；' : ''}授信额度和坏账率。</li>`;
   }
 
   function renderChange(R) {
@@ -806,7 +832,8 @@ const DATA = /*__DATA__*/;
     RUN.companies.filter((c) => !S.included.includes(c.id)).forEach((c) => causes.push(`去掉${c.short}`));
     S.extra.filter((e) => S.included.includes(e.id)).forEach((e) => causes.push(`加入${e.name}`));
     S.intel.forEach((it) => causes.push(`情报：${universe(false).find((c) => c.id === it.co)?.short}「${CHECK[it.check]?.text.split('（')[0]}」→ ${it.s === true ? '成立' : it.s === false ? '不成立' : '查不到'}`));
-    if (S.unc.pB !== DEFAULT_UNCERTAINTY.pB || S.unc.pNull !== DEFAULT_UNCERTAINTY.pNull || S.unc.pAdverse !== DEFAULT_UNCERTAINTY.pAdverse) causes.push('调整了概率的不确定性假设');
+    if (uncChanged()) causes.push('调整了概率的不确定性假设');
+    Object.entries(S.alloc).forEach(([id, v]) => causes.push(`检查项分值「${CHECK[id]?.text.split('：')[0].split('（')[0]}」${ROLES[CHECK[id]?.role]?.base}→${v} 份`));
     box.hidden = false;
     box.innerHTML = `<div class="row" style="justify-content:space-between"><span class="label">和初始结论相比</span><button class="btn ghost" type="button" data-reset="1">恢复初始</button></div>
       ${out.length ? `<ul>${out.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p>排名、概率和建议都没变，结论对这些调整不敏感。</p>'}
@@ -906,6 +933,28 @@ const DATA = /*__DATA__*/;
       : '<p class="small">单独调任何一个权重都不会改变两家排序。</p>');
     parts.push(`<p class="hint">长虹佳华按同一套规则打分，没有为我方放宽：查不到的检查项不给分，只有自述的维度最高 3.5。</p>`);
     $('flipBox').innerHTML = parts.join('');
+    renderRob(R, rv);
+  }
+
+  function renderRob(R, rv) {
+    const { rob } = R;
+    const name = (id) => R.scored.find((r) => r.id === id)?.company.short || id;
+    const pa = rob.ahead[SELF]?.[rv.id] ?? 0;
+    const meFirst = rv && R.k.self && R.k.self.total >= rv.total;
+    const order = Math.min(pa, 1 - pa) >= 0.15
+      ? `长虹佳华和${rv.company.short}谁先谁后取决于分值怎么给（${pct(Math.min(pa, 1 - pa))} 的给法下会反过来），分值需要业务负责人确认。`
+      : `长虹佳华和${rv.company.short}的先后基本不随分值变化。`;
+    const verdict = (rob.sameTop2 >= 0.9 ? `前两名是谁很稳（${pct(rob.sameTop2)} 的给法下不变）。` : `前两名是谁会随分值变化（${pct(rob.sameTop2)} 的给法下不变）。`) + order;
+    $('robBox').innerHTML = `
+      <p class="small muted">每个检查项的分值在当前分值上下随机浮动（约 ±50%，各维度满分仍是 5），证据和判断都不变，按「${esc(FW.scoring.unknown_modes[S.mode].split('：')[0])}」口径重排 ${rob.n} 次。</p>
+      <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <div class="stat"><span class="label">排序完全不变</span><span class="v num" data-fk="rob-same">${pct(rob.sameOrder)}</span></div>
+        <div class="stat"><span class="label">前两名不变</span><span class="v num" data-fk="rob-top2">${pct(rob.sameTop2)}</span></div>
+        <div class="stat"><span class="label">长虹佳华排在${esc(rv.company.short)}前面</span><span class="v num" data-fk="rob-ahead">${pct(pa)}</span><span class="hint">按当前分值：${meFirst ? '在前' : '在后'}</span></div>
+      </div>
+      <p class="small"><b>结论</b>：${esc(verdict)}</p>
+      ${why('rob-orders', '<span>最常见的几种排序</span>', `<div class="stack" style="gap:6px">${rob.orders.slice(0, 5).map((o) => `<div class="row small" style="gap:8px;flex-wrap:nowrap"><span class="num" style="min-width:3em;text-align:right">${pct(o.p)}</span><span style="flex:1">${o.ids.map((id) => id === SELF ? `<b>${esc(name(id))}</b>` : esc(name(id))).join(' › ')}</span></div>`).join('')}</div>
+        <p class="hint">这是对「检查项分值」这一个假设的检验；证据不确定、门槛、维度权重的影响在「能不能赢」的排名概率里。</p>`, 'lv2')}`;
   }
 
   // ---------- 怎么打 ----------
@@ -1013,13 +1062,37 @@ const DATA = /*__DATA__*/;
     $('modeSel').innerHTML = Object.entries(FW.scoring.unknown_modes).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
     $('modeSel').value = S.mode;
     $('modeSel').onchange = (e) => { S.mode = e.target.value; update(); };
-    $('uncBox').innerHTML = [['pB', '只有自述或单一报道的检查项，属实的概率', 0.5, 1], ['pNull', '查不到的检查项，成立的概率', 0.1, 0.9], ['pAdverse', '查不到且有不利线索的检查项，成立的概率', 0, 0.6]].map(([k, l, a, b]) => `
-      <div class="slider"><label for="u-${k}" class="small">${esc(l)}</label><output id="uo-${k}" class="num">${pct(S.unc[k])}</output>
+    $('uncBox').innerHTML = [['pB', '只有自述或单一报道的检查项，属实的概率', 0.5, 1], ['pNull', '查不到的检查项，成立的概率', 0.1, 0.9], ['pAdverse', '查不到且有不利线索的检查项，成立的概率', 0, 0.6], ['sigmaCheck', '检查项分值的随机浮动幅度（0 = 不浮动）', 0, 0.8]].map(([k, l, a, b]) => `
+      <div class="slider"><label for="u-${k}" class="small">${esc(l)}</label><output id="uo-${k}" class="num">${k === 'sigmaCheck' ? S.unc[k].toFixed(2) : pct(S.unc[k])}</output>
       <input type="range" id="u-${k}" min="${a}" max="${b}" step="0.05" value="${S.unc[k]}"></div>`).join('') +
-      `<p class="hint">门槛的通过概率：${Object.values(GS).map((s) => `${s.label} ${pct(s.p)}`).join('，')}。权重每次抽样随机浮动约 ±25%。</p>`;
-    ['pB', 'pNull', 'pAdverse'].forEach((k) => $('u-' + k).addEventListener('input', (e) => { S.unc[k] = +e.target.value; $('uo-' + k).textContent = pct(S.unc[k]); schedule(); }));
+      `<p class="hint">门槛的通过概率：${Object.values(GS).map((s) => `${s.label} ${pct(s.p)}`).join('，')}。维度权重每次抽样随机浮动约 ±25%；检查项分值按上面的幅度浮动后在各维度内重新归一。</p>`;
+    UNC_KEYS.forEach((k) => $('u-' + k).addEventListener('input', (e) => { S.unc[k] = +e.target.value; $('uo-' + k).textContent = k === 'sigmaCheck' ? S.unc[k].toFixed(2) : pct(S.unc[k]); schedule(); }));
+    renderAlloc();
     renderAhp();
     setTab(S.tab);
+  }
+
+  function renderAlloc() {
+    const CW = FW.scoring.check_weights;
+    $('allocBox').innerHTML = `<p class="small muted">${esc(CW.method)}</p><p class="hint">${esc(CW.tiers)} ${esc(CW.groups)}</p>
+      <p class="hint">改「份数」即可，分值按份数比例自动分配，每个维度满分仍是 5。</p>` +
+      DIMS.map((d) => `<p class="small" style="margin:10px 0 4px"><b>${esc(d.name)}</b></p>
+        <div class="alloc">${d.checks.map((c) => `<label class="small" for="al-${c.id}" title="${esc(c.why || '')}">${esc(c.text)} <span class="tag ghost">${esc(ROLES[c.role]?.label || '')}</span><span class="hint" style="display:block">${esc(c.why || '')}</span></label>
+          <input type="number" id="al-${c.id}" min="0" max="10" step="0.5" value="${S.alloc[c.id] ?? ROLE_BASE[c.role]}" aria-label="${esc(c.text)} 的份数">
+          <output class="num small" id="alo-${c.id}"></output>`).join('')}</div>`).join('') +
+      `<div class="row"><button class="btn ghost" type="button" id="allocReset">恢复按角色分档</button></div>`;
+    DIMS.forEach((d) => d.checks.forEach((c) => $('al-' + c.id).addEventListener('input', (e) => {
+      const v = Math.max(0, Math.min(10, +e.target.value || 0));
+      if (v === ROLE_BASE[c.role]) delete S.alloc[c.id]; else S.alloc[c.id] = v;
+      applyAlloc(S.alloc);
+      allocOut();
+      schedule();
+    })));
+    $('allocReset').onclick = () => { S.alloc = {}; renderAlloc(); update(); };
+    allocOut();
+  }
+  function allocOut() {
+    DIMS.forEach((d) => { const pts = checkPoints(d); d.checks.forEach((c) => { const o = $('alo-' + c.id); if (o) o.textContent = `= ${f2(pts[c.id])} 分`; }); });
   }
 
   const AHP_OPTS = [[9, '左边极端重要'], [5, '左边明显重要'], [3, '左边稍重要'], [1, '同样重要'], [1 / 3, '右边稍重要'], [1 / 5, '右边明显重要'], [1 / 9, '右边极端重要']];
@@ -1115,6 +1188,8 @@ const DATA = /*__DATA__*/;
       why('m-rule', '<span><b>评分规则</b>：先过门槛，再按检查项打分</span>', `
         <p class="small">${esc(FW.scoring.principle)}</p>
         <p class="small">${esc(FW.gates.why)}</p>
+        <p class="small"><b>检查项分值</b>：${esc(FW.scoring.check_weights.method)}</p>
+        <ul class="plain small"><li>${esc(FW.scoring.check_weights.tiers)}</li><li>${esc(FW.scoring.check_weights.groups)}</li><li>${esc(FW.scoring.check_weights.uncertainty)}</li></ul>
         ${FW.gates.list.map((g) => `<p class="small"><b>${esc(g.name)}</b>（${esc(g.question)}）</p><ul class="plain small">${g.rules.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${g.threshold_note ? `<p class="hint">${esc(g.threshold_note)}</p>` : ''}`).join('')}
         <p class="small"><b>证据分级</b>：${Object.values(EG.types).map((t) => `${esc(t.label)} ${t.grade} 级`).join('；')}。</p>
         <ul class="plain small">${EG.rules.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`, 'flat'),
@@ -1156,13 +1231,13 @@ const DATA = /*__DATA__*/;
           <tr><td><b>V1.1</b><br><span class="muted">本次</span></td><td>结论更准</td><td>门槛三态、检查项打分、证据分级封顶、排名概率、翻盘条件、我方同规则自评</td><td>每个分数可追溯到证据；每个门槛结果附原因</td></tr>
           <tr><td><b>V1.5</b><br><span class="muted">1–2 周</span></td><td>可信</td><td>真实 API 跑通；标准答案集与回归评测；多次运行取一致；人工复核队列</td><td>检查项判断准确率 ≥ 95%；人工修改率 ≤ 20%</td></tr>
           <tr><td><b>V2</b><br><span class="muted">1–2 月</span></td><td>进入工作流</td><td>飞书卡片、多维表格存权重和情报、高风险结论走审批；工商与司法接口；主体识别；现任一代参照组</td><td>单次调研 ≤ 4 小时；提醒采纳率 ≥ 50%</td></tr>
-          <tr><td><b>V3</b><br><span class="muted">一个季度</span></td><td>闭环学习</td><td>Meta 的最终选择、项目输赢回流，重新校准权重和评委；模板化复用到其他竞标</td><td>人工修改率 ≤ 10%；新场景不写代码上线</td></tr>
+          <tr><td><b>V3</b><br><span class="muted">一个季度</span></td><td>闭环学习</td><td>Meta 的最终选择、项目输赢回流：以现任一代为正样本回测，在专家初值附近修正维度权重和检查项分值（带正则，样本少时不偏离太远）；重新校准评委；模板化复用到其他竞标</td><td>人工修改率 ≤ 10%；新场景不写代码上线</td></tr>
         </table></div>`),
       why('m-lim', '<span><b>边界</b>：哪些还需要人</span>', `<ul class="plain small">
           <li>工商和司法数据本次无法直接访问。对手的减资、诉讼线索来自转引资料，只标「待定·有不利线索」，不当事实用。</li>
           <li>长虹佳华的「客户增量」几乎没有公开证据。结论里的追平路径，就是需要内部补的数据。</li>
           <li>Meta 这次的名额数、评估标准没有官方公开信息，页面里做成可切换的情景，以贵司的一手信息为准。</li>
-          <li>权重还没有用已知结果回测；概率依赖不确定性假设，可以在「调一调」里改。</li>
+          <li>维度权重和检查项分值都是按规则给的初值，还没有用已知结果回测。长虹佳华和店匠谁先谁后对检查项分值敏感（见「结论稳不稳」），分值需要业务负责人确认。概率依赖不确定性假设，可以在「调一调」里改。</li>
           <li>概率只比较名单内的公司；Meta 的主观判断、路演表现、其他候选人都不在模型里。门槛「通过」也只按 97% 计，因为门槛规则本身是推断的。</li>
           <li>v1.1 的检查项由人工按 Agent 规则判断；自动流程代码和测试已就绪，还没有用真实 API key 跑过。</li>
           <li>「上次自动重跑」是模拟数据，只演示机制。</li></ul>`),
@@ -1253,6 +1328,7 @@ const DATA = /*__DATA__*/;
     const g = e.target.closest('[data-goto]');
     if (g) {
       const id = g.dataset.goto;
+      if (g.dataset.open) { setTab('mine'); const d = document.querySelector(`details[data-k="${g.dataset.open}"]`); if (d) d.open = true; }
       const box = document.getElementById(id);
       if (id.startsWith('co-')) { open.add(id); const d = box?.querySelector('details'); if (d) d.open = true; }
       box?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
@@ -1308,7 +1384,7 @@ const DATA = /*__DATA__*/;
 
   $('runDate').textContent = RUN.date;
   $('foot').innerHTML = `数据方法：${esc(RUN.method)} 代码与数据：meta-agency-radar/（data/runs/${esc(RUN.run_id)}.json）。`;
-  BASE = compute(RUN.companies, baseWeights, 'conservative', { pB: DEFAULT_UNCERTAINTY.pB, pNull: DEFAULT_UNCERTAINTY.pNull, pAdverse: DEFAULT_UNCERTAINTY.pAdverse });
+  BASE = compute(RUN.companies, baseWeights, 'conservative', Object.fromEntries(UNC_KEYS.map((k) => [k, DEFAULT_UNCERTAINTY[k]])), {});
   renderControls();
   renderRoster();
   renderEcon();

@@ -142,6 +142,7 @@
         },
         "f2": {
           "s": true,
+          "tier": 1,
           "ev": [
             "ch_ar",
             "ch_h1"
@@ -402,6 +403,7 @@
       "checks": {
         "c1": {
           "s": true,
+          "tier": 1,
           "ev": [
             "sl_about",
             "sl_sz"
@@ -484,6 +486,7 @@
         },
         "t5": {
           "s": true,
+          "tier": 1,
           "ev": [
             "sl_c1"
           ],
@@ -498,6 +501,7 @@
         },
         "f2": {
           "s": true,
+          "tier": 1,
           "ev": [
             "sl_c1",
             "sl_c1b"
@@ -722,6 +726,7 @@
       "checks": {
         "c1": {
           "s": true,
+          "tier": 0,
           "ev": [
             "lt_site"
           ],
@@ -987,6 +992,7 @@
       "checks": {
         "c1": {
           "s": true,
+          "tier": 1,
           "ev": [
             "ld_site"
           ],
@@ -1249,6 +1255,7 @@
       "checks": {
         "c1": {
           "s": true,
+          "tier": 0,
           "ev": [
             "yk_self"
           ],

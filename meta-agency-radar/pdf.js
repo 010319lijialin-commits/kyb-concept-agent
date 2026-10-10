@@ -45,7 +45,7 @@ export function md(text) {
 
 const css = `
 @page { size: A4; margin: 9mm 11mm 9mm 11mm; }
-body { font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 8.4pt; line-height: 1.45; color: #13203a; }
+body { font-family: "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 8.2pt; line-height: 1.42; color: #13203a; }
 h1 { font-family: "Noto Serif CJK SC", "Noto Serif SC", serif; font-size: 15pt; margin: 0 0 3pt; }
 h2 { font-size: 10pt; margin: 6pt 0 2pt; border-bottom: 1px solid #d9dfe9; padding-bottom: 2pt; color: #1f5fd1; }
 p { margin: 2pt 0; }

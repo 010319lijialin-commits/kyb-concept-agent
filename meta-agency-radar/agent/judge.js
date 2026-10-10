@@ -8,7 +8,7 @@ function allChecks(fw) {
 }
 
 export function judgeSystem(fw) {
-  const list = allChecks(fw).map((c) => `- ${c.id}（${c.dim}）：${c.text}`).join('\n');
+  const list = allChecks(fw).map((c) => `- ${c.id}（${c.dim}）：${c.text}${c.tiers ? `［分档，tier=${c.tiers.map((t, i) => `${i}：${t.label}`).join('；')}］` : ''}`).join('\n');
   return `你在帮 Meta 大中华区渠道团队核查一家候选代理商。对下列每个检查项判断是否成立。
 ${list}
 规则：
@@ -17,15 +17,18 @@ ${list}
 3. 证据只证明邻近能力时不能算成立（例：拿到平台资质证明的是运营能力，不等于有自研技术）。
 4. 只有不利传闻、没有可靠来源时，s=null 并设 adverse=true。
 5. 每个 s=true 或 s=false 的检查项必须列出证据 id。
+6. 标了「分档」的检查项成立时，再给出证据能支持的最高档 tier（0 起算）；拿不准就给低档。
 输出 JSON：
-{"checks":{"c1":{"s":true|false|null,"ev":["证据id"],"note":"一句话依据","adverse":false}, ...},
+{"checks":{"c1":{"s":true|false|null,"tier":0,"ev":["证据id"],"note":"一句话依据","adverse":false}, ...},
  "positioning":"一句话定位","strategy":"它竞标 Meta 一代最可能打的牌","advantage":"最大优势","weakness":"致命弱点","risks":["待核实事项"]}`;
 }
 
-// 清洗模型输出：未知检查项丢弃；引用了不存在的证据就去掉；没有有效证据的 true/false 改成 null。
+// 清洗模型输出：未知检查项丢弃；引用了不存在的证据就去掉；没有有效证据的 true/false 改成 null；
+// 档位只留给分档且成立的检查项，越界的去掉（评分时按最低档）。
 export function sanitizeChecks(raw, evidence, fw) {
   const ids = new Set(evidence.map((e) => e.id));
-  const valid = new Set(allChecks(fw).map((c) => c.id));
+  const checks = Object.fromEntries(allChecks(fw).map((c) => [c.id, c]));
+  const valid = new Set(Object.keys(checks));
   const out = {};
   let dropped = 0;
   for (const id of valid) {
@@ -36,7 +39,9 @@ export function sanitizeChecks(raw, evidence, fw) {
       s = null;
       dropped += 1;
     }
-    out[id] = { s, ev, note: String(a.note || '').slice(0, 200), ...(a.adverse ? { adverse: true } : {}) };
+    const nt = checks[id].tiers?.length ?? 0;
+    const tier = s === true && Number.isInteger(a.tier) && a.tier >= 0 && a.tier < nt ? { tier: a.tier } : {};
+    out[id] = { s, ...tier, ev, note: String(a.note || '').slice(0, 200), ...(a.adverse ? { adverse: true } : {}) };
   }
   return { checks: out, dropped };
 }
@@ -49,7 +54,9 @@ export function mergeRuns(runs) {
   for (const id of ids) {
     const states = runs.map((r) => r[id]?.s ?? null);
     if (states.every((s) => s === states[0])) {
-      merged[id] = runs[0][id];
+      // 档位不一致时取最低档
+      const tiers = runs.map((r) => r[id]?.tier).filter(Number.isInteger);
+      merged[id] = tiers.length ? { ...runs[0][id], tier: Math.min(...tiers) } : runs[0][id];
     } else {
       merged[id] = { s: null, ev: [], note: `模型 ${runs.length} 次判断不一致（${states.map(String).join(' / ')}），转人工复核` };
       disputed.push(id);

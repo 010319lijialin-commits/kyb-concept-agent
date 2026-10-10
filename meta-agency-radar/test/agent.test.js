@@ -39,6 +39,17 @@ test('清洗模型输出：没证据的结论改成查不到，编造的证据 i
   assert.equal(checks.c4.s, null, '没回答的检查项按查不到处理');
 });
 
+test('清洗模型输出：档位只留给分档且成立的检查项；多次运行档位不一致取低档', () => {
+  const evidence = [{ id: 'e1' }];
+  const { checks } = sanitizeChecks({ c1: { s: true, tier: 1, ev: ['e1'] }, c2: { s: true, tier: 1, ev: ['e1'] }, t5: { s: true, tier: 7, ev: ['e1'] } }, evidence, fw);
+  assert.equal(checks.c1.tier, 1);
+  assert.ok(!('tier' in checks.c2), 'c2 不分档');
+  assert.ok(!('tier' in checks.t5), '越界档位去掉，评分时按最低档');
+  const { checks: m } = mergeRuns([{ c1: { s: true, tier: 1, ev: ['e'] } }, { c1: { s: true, tier: 0, ev: ['e'] } }]);
+  assert.equal(m.c1.tier, 0);
+  assert.ok(judgeSystem(fw).includes('分档'));
+});
+
 test('多次运行：判断不一致的检查项转人工复核', () => {
   const a = { c1: { s: true, ev: ['e'] }, c2: { s: false, ev: ['e'] } };
   const b = { c1: { s: true, ev: ['e'] }, c2: { s: true, ev: ['e'] } };

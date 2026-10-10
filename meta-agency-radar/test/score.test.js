@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import {
   checkState, dimScore, scoreCompany, gatesOf, rank, monteCarlo, flips, fastestPath,
   conclusions, diffRuns, ahp, judgeAgreement, estimateCost, quoteInText, contributions,
+  checkPoints, tierOf, dimRaw, checkWeightRobustness,
 } from '../lib/score.js';
 import { auc, calibrate } from '../agent/calibrate.js';
 
@@ -43,14 +44,54 @@ test('证据分级：C 级证据撑不起「成立」，双源 B 级视同 A 级
 });
 
 test('维度分：没有 A 级或双源证据时已证实分封顶 3.5，查不到的计入区间', () => {
-  const weak = mk('w', { c1: [true, 'self'], c2: [true, 'self'], c3: [true, 'self'], c4: [true, 'self'], c5: [null] });
+  const weak = mk('w', { c2: [true, 'self'], c3: [true, 'self'], c4: [true, 'self'], c5: [true, 'self'], c1: [null] });
+  weak.checks.c4.tier = 1;
   const ds = dimScore(weak, clients, fw);
-  assert.equal(ds.raw, 4);
+  assert.ok(ds.raw > 3.5);
   assert.equal(ds.lo, 3.5);
   assert.ok(ds.capped);
   assert.equal(ds.hi, 5);
-  const strong = mk('s', { c1: [true, 'official'], c2: [true, 'self'], c3: [true, 'self'], c4: [true, 'self'], c5: [false, 'self'] });
-  assert.equal(dimScore(strong, clients, fw).lo, 4);
+  const strong = JSON.parse(JSON.stringify(weak));
+  strong.evidence[0].type = 'official';
+  assert.equal(dimScore(strong, clients, fw).lo, ds.raw);
+});
+
+test('检查项分值：按角色分档后维度内归一到 5，可被重新分配覆盖', () => {
+  for (const d of fw.dimensions) {
+    const pts = checkPoints(d);
+    assert.ok(Math.abs(Object.values(pts).reduce((a, b) => a + b, 0) - 5) < 1e-9, d.id);
+    for (const a of d.checks) for (const b of d.checks)
+      if (a.role === 'core' && b.role === 'weak') assert.ok(pts[a.id] > pts[b.id], `${a.id} > ${b.id}`);
+    for (const c of d.checks) assert.ok(c.why, `${c.id} 要写理由`);
+  }
+  const eq = { ...clients, checks: clients.checks.map((c) => ({ ...c, alloc: 20 })) };
+  assert.deepEqual(Object.values(checkPoints(eq)), [1, 1, 1, 1, 1]);
+});
+
+test('分档：部分满足得一半，没写档位按最低档', () => {
+  const c1 = clients.checks.find((c) => c.id === 'c1');
+  assert.equal(tierOf(c1, { s: true }).f, 0.5);
+  assert.equal(tierOf(c1, { s: true, tier: 1 }).f, 1);
+  const lo = dimScore(mk('a', { c1: [true, 'official'] }), clients, fw).lo;
+  const full = mk('b', { c1: [true, 'official'] });
+  full.checks.c1.tier = 1;
+  assert.ok(Math.abs(dimScore(full, clients, fw).lo - 2 * lo) < 0.02);
+});
+
+test('分组：同一事实满足的两项不重复全额计分，维度满分仍是 5', () => {
+  const pts = checkPoints(clients);
+  const both = dimRaw(clients, { c1: pts.c1, c5: pts.c5 });
+  const sep = dimRaw(clients, { c1: pts.c1 }) + dimRaw(clients, { c5: pts.c5 });
+  assert.ok(both < sep);
+  assert.equal(dimRaw(clients, pts), 5);
+});
+
+test('检查项分值换种给法：频率加总为 1，不浮动时排序不变', () => {
+  const r = checkWeightRobustness(run.companies, fw, null, 'conservative', { n: 300 });
+  assert.ok(Math.abs(r.orders.reduce((a, o) => a + o.p, 0) - 1) < 1e-9);
+  assert.ok(r.sameOrder > 0 && r.sameOrder < 1);
+  assert.ok(Math.abs(r.ahead.changhong.shoplazza + r.ahead.shoplazza.changhong - 1) < 1e-9);
+  assert.equal(checkWeightRobustness(run.companies, fw, null, 'conservative', { n: 20, sigma: 0 }).sameOrder, 1);
 });
 
 test('全是查不到：已证实 0 分，区间到 5', () => {
@@ -169,7 +210,7 @@ test('滚动 diff：对手门槛变差、分数下降是机会，上升是威胁
   const { alerts } = diffRuns(prevSim, run, fw, null, 'conservative');
   assert.ok(alerts.some((a) => a.company === '宜客' && a.level === 'opportunity' && a.text.includes('合规门槛')));
   assert.ok(alerts.some((a) => a.company === '店匠' && a.level === 'opportunity'));
-  assert.ok(alerts.some((a) => a.company === '领拓' && a.level === 'threat'));
+  assert.ok(alerts.some((a) => a.company === '领拓' && a.level === 'threat' && a.text.includes('奖项')), '分数变化小也点名是哪个检查项');
   assert.ok(!alerts.some((a) => a.company === '长虹佳华'));
 });
 
