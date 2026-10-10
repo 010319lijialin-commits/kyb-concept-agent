@@ -1,10 +1,10 @@
 // 第 3 步：强模型判断检查项，不打分。
-// 模型只回答「这个检查项成立吗、依据哪几条证据」；分数、门槛、排名由 lib/score.js 按规则计算。
+// 模型只回答「这个检查项成立吗、依据哪几条证据」；分数、红线核查、排名由 lib/score.js 按规则计算。
 // 可选多次运行（JUDGE_RUNS=3）：各次判断不一致的检查项改为「查不到」并标记人工复核。
 import { chatJSON } from './llm.js';
 
 function allChecks(fw) {
-  return [...fw.dimensions.flatMap((d) => d.checks.map((c) => ({ ...c, dim: d.name }))), ...fw.gate_checks.map((g) => ({ ...g, dim: '门槛' }))];
+  return [...fw.dimensions.flatMap((d) => d.checks.map((c) => ({ ...c, dim: d.name }))), ...fw.gate_checks.map((g) => ({ ...g, dim: '红线' }))];
 }
 
 export function judgeSystem(fw) {

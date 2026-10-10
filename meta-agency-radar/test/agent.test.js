@@ -74,11 +74,12 @@ test('官方名单解析与变化监控', () => {
   assert.deepEqual(listDiff(list, [...list, 'HuntMobi']).added, ['HuntMobi']);
 });
 
-test('飞书卡片包含排名、门槛和提醒', () => {
+test('飞书卡片包含排名、红线核查和提醒', () => {
   const ranking = rank(run.companies, fw, null, 'conservative');
   const mc = monteCarlo(run.companies, fw, null, { n: 300 });
   const card = buildCard({ runId: 'x', ranking, mc, alerts: [{ level: 'opportunity', text: '测试提醒' }], review: ['宜客.k3'] });
   const s = JSON.stringify(card);
   assert.equal(card.msg_type, 'interactive');
   assert.ok(s.includes('长虹佳华') && s.includes('测试提醒') && s.includes('待人工复核'));
+  assert.ok(!s.includes('undefined'), '每种红线核查状态都有中文名');
 });

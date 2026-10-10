@@ -1,5 +1,5 @@
 // 滚动跑入口。
-//   node agent/run.js --offline               不调模型：按名单 + 最新一期数据重算（门槛、排名、概率、翻盘条件），和上一期对比，出提醒
+//   node agent/run.js --offline               不调模型：按名单 + 最新一期数据重算（红线核查、排名、概率、翻盘条件），和上一期对比，出提醒
 //   node agent/run.js                         在线：核对 Meta 官方名单 → 检索 → 便宜模型抽证据（核对引文）→ 强模型判断检查项 → 代码打分 → 对比 → 提醒
 //   node agent/run.js --only=lingtok,addragon 只重跑部分公司，其余沿用上一期
 // 定时：crontab 每周一 9 点 `0 9 * * 1 cd /path && node agent/run.js && node build.js`
@@ -60,7 +60,7 @@ const mc = monteCarlo(curr.companies, fw, null);
 const k = conclusions(curr.companies, fw, null, 'conservative', selfId);
 const S = fw.gates.states;
 
-const lines = [`# Meta 一代竞争力雷达 · ${curr.run_id}`, '', '| 名次 | 公司 | 已证实分 | 可能区间 | 资金门槛 | 合规门槛 | 排第一 | 前 2 | 门槛出局 |', '|---|---|---|---|---|---|---|---|---|'];
+const lines = [`# Meta 一代竞争力雷达 · ${curr.run_id}`, '', '| 名次 | 公司 | 已证实分 | 可能区间 | 资金红线 | 合规红线 | 排第一 | 前 2 | 踩红线出局 |', '|---|---|---|---|---|---|---|---|---|'];
 for (const r of ranking) {
   const p = mc[r.id];
   lines.push(`| ${r.rank} | ${r.company.short}${r.company.role === 'self' ? '（我方）' : ''} | ${r.total} | ${r.low}–${r.high} | ${S[r.gates.gate_fin.state].label} | ${S[r.gates.gate_comp.state].label} | ${pct(p.pFirst)} | ${pct(p.pTop2)} | ${pct(p.pOut)} |`);
@@ -90,7 +90,7 @@ if (review.length) lines.push('', `## 待人工复核`, '', review.map((x) => `-
 
 if (!args.offline) lines.push('', '## 本次成本', '', `便宜模型 ${ledger.cheap.calls} 次，强模型 ${ledger.strong.calls} 次，检索 ${ledger.search} 次，约 ¥${actualCost()}`);
 const est = estimateCost(curr.companies.length, fw.dimensions.length);
-lines.push('', '> 概率只在名单内比较，只反映门槛和查得到的信息；Meta 的主观判断、路演表现、名单外候选人不在模型里。');
+lines.push('', '> 概率只在名单内比较，只反映红线核查和查得到的信息；Meta 的主观判断、路演表现、名单外候选人不在模型里。');
 lines.push('', `预估单次全量成本 ¥${est.yuan.total}（全部用强模型约 ¥${est.allStrongYuan}）`);
 
 fs.mkdirSync(REPORTS, { recursive: true });

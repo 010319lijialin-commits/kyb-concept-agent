@@ -1,7 +1,7 @@
-// 飞书群机器人消息卡片：排名摘要 + 门槛 + 提醒 + 需要人工复核的事项。
+// 飞书群机器人消息卡片：排名摘要 + 红线核查 + 提醒 + 需要人工复核的事项。
 // ALERT_WEBHOOK_KIND=feishu_card 时使用；feishu / wecom 发纯文本。
 
-const STATE = { pass: '通过', pending: '待定', borderline: '临界', pending_adverse: '待定·有不利线索', fail: '不通过' };
+const STATE = { pass: '通过', pass_inferred: '通过·待确认', pending: '待定', borderline: '附条件', pending_adverse: '待核·有不利线索', fail: '踩红线' };
 const TAG = { opportunity: '🟢 机会', threat: '🔴 威胁', info: '🟡 复核' };
 
 export function buildCard({ runId, ranking, mc, alerts, review = [], reportUrl, simulatedPrev }) {
@@ -9,7 +9,7 @@ export function buildCard({ runId, ranking, mc, alerts, review = [], reportUrl, 
     .map((r) => {
       const p = mc?.[r.id];
       const g = `${STATE[r.gates.gate_fin.state]} / ${STATE[r.gates.gate_comp.state]}`;
-      return `**${r.rank}. ${r.company.short}${r.company.role === 'self' ? '（我方）' : ''}**　已证实 ${r.total} 分　门槛 ${g}${p ? `　前 2 概率 ${Math.round(p.pTop2 * 100)}%` : ''}`;
+      return `**${r.rank}. ${r.company.short}${r.company.role === 'self' ? '（我方）' : ''}**　已证实 ${r.total} 分　资金/合规 ${g}${p ? `　前 2 概率 ${Math.round(p.pTop2 * 100)}%` : ''}`;
     })
     .join('\n');
   const elements = [

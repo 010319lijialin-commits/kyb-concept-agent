@@ -1,5 +1,5 @@
 // 评分引擎 v2。Node 和浏览器共用（build.js 会去掉 export 内联进页面）。
-// 原则：人或模型只判断检查项是否成立并挂证据；分数、门槛、排名、概率全部由这里的代码算。
+// 原则：人或模型只判断检查项是否成立并挂证据；分数、红线核查、排名、概率全部由这里的代码算。
 
 export const MODES = ['conservative', 'neutral', 'optimistic'];
 
@@ -149,7 +149,7 @@ export function contributions(scored, fw, weights, mode = 'conservative') {
   });
 }
 
-// ---------- 门槛 ----------
+// ---------- 红线核查 ----------
 
 // 证据日期（YYYY / YYYY-MM / YYYY-MM-DD）距 asOf 超过 months 个月算过时
 export function isStale(published, asOf, months) {
@@ -161,6 +161,8 @@ export function isStale(published, asOf, months) {
   return (d.getFullYear() - y) * 12 + (d.getMonth() + 1 - mo) > months;
 }
 
+// 红线核查：只有踩红线才一票否决，而且要有 A 级或双源证据；只有非官方来源时按「待核·有不利线索」处理。
+// 资本偏弱、诉讼、对外表述不实不是红线：Meta 会附条件（保证金、保函、降额度、要求更正），在打分里体现。
 export function gatesOf(company, fw, asOf) {
   const evById = Object.fromEntries((company.evidence || []).map((e) => [e.id, e]));
   const staleM = fw.scoring.stale_months ?? 36;
@@ -168,11 +170,14 @@ export function gatesOf(company, fw, asOf) {
   const st = (id) => checkState(company.checks?.[id], evById, fw);
   const isYes = (id) => st(id).state === 'yes';
   const isNo = (id) => st(id).state === 'no';
+  const hard = (id, state) => { const x = st(id); return x.state === state && x.strong; };
   const adverse = (...ids) => ids.some((id) => st(id).adverse);
   const note = (id) => company.checks?.[id]?.note || '';
+  const advNote = (...ids) => ids.map((id) => (st(id).adverse ? note(id) : '')).find(Boolean) || '';
 
   let fin;
-  if (isYes('gx1')) fin = { state: 'fail', reason: note('gx1') || '注册资本低于 100 万元或连续减资' };
+  if (hard('gx1', 'yes')) fin = { state: 'fail', reason: note('gx1') || '失信被执行人、破产清算或被吊销（官方来源）' };
+  else if (isYes('gx1')) fin = { state: 'pending_adverse', reason: `${note('gx1') || '有踩红线的报道'}；只有非官方来源，待核实` };
   else if (isYes('f1') || isYes('f2')) {
     const basis = isYes('f1') ? '上市公司，财报公开' : note('f2') || '有公开营收或大额机构融资';
     const recent = (isYes('f1') && fresh('f1')) || (isYes('f2') && fresh('f2'));
@@ -180,17 +185,20 @@ export function gatesOf(company, fw, asOf) {
     else if (!recent) fin = { state: 'pass_inferred', reason: `${basis}；但支撑证据都超过 ${staleM / 12} 年，近况未知` };
     else fin = { state: 'pass', reason: basis };
   }
-  else if (isNo('f4')) fin = { state: 'borderline', reason: note('f4') || '注册资本低于 1000 万或近期减资' };
+  else if (isNo('f4')) fin = { state: 'borderline', reason: `${note('f4') || '资本实力偏弱'}。不是红线，但 Meta 可能要求保证金、保函或降低授信额度` };
   else if (isYes('f4')) fin = { state: 'pass', reason: note('f4') || '资本实力达标' };
-  else if (adverse('f4', 'gx1')) fin = { state: 'pending_adverse', reason: note('gx1') || note('f4') || '查不到，且有不利线索' };
-  else fin = { state: 'pending', reason: '查不到注册资本、融资或营收信息' };
+  else if (adverse('f4', 'gx1')) fin = { state: 'pending_adverse', reason: `${advNote('gx1', 'f4') || '有不利线索'}。线索未核实，派人核工商` };
+  else fin = { state: 'pending', reason: '查不到注册资本、融资或营收信息；Meta 尽调时会要审计报表' };
 
   let comp;
-  if (isNo('k1')) comp = { state: 'fail', reason: note('k1') || '有失信、经营异常或重大处罚' };
-  else if (isNo('k2') || isNo('k3')) comp = { state: 'borderline', reason: isNo('k3') ? note('k3') || '对外资质表述与官方目录不符' : note('k2') || '有未结重大诉讼' };
+  if (hard('k1', 'no')) comp = { state: 'fail', reason: note('k1') || '失信、经营异常或重大处罚（官方来源）' };
+  else if (isNo('k1')) comp = { state: 'pending_adverse', reason: `${note('k1') || '有失信或处罚的报道'}；只有非官方来源，待核实` };
+  else if (isNo('k3')) comp = { state: 'borderline', reason: `${note('k3') || '对外资质表述与官方目录不符'}。不是红线，但 Meta 会要求更正，并影响信任` };
+  else if (isNo('k2')) comp = { state: 'borderline', reason: `${note('k2') || '有未结重大诉讼'}。不是红线，需要说明对经营的影响` };
   else if (isYes('k1')) comp = { state: 'pass', reason: '工商与司法核验无问题' };
   else if (isYes('f1')) comp = { state: 'pass_inferred', reason: '上市公司须持续披露重大处罚，未见相关公告；但未做工商与司法核验' };
-  else if (adverse('k1', 'k2')) comp = { state: 'pending_adverse', reason: note('k2') || note('k1') || '查不到，且有不利线索' };
+  else if (adverse('k1')) comp = { state: 'pending_adverse', reason: `${advNote('k1') || '有不利线索'}。线索未核实` };
+  else if (adverse('k2')) comp = { state: 'pending', reason: `${note('k2')}。诉讼不属于红线，未做工商与司法核验` };
   else comp = { state: 'pending', reason: '未接入工商与司法数据，暂无不利线索' };
 
   const p = (g) => fw.gates.states[g.state].p;
@@ -289,7 +297,7 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
 
 // ---------- 检查项分值换种给法，排序变不变 ----------
 
-// 只让检查项分值随机浮动（各维度内重新归一），证据和门槛不变，看已证实分的排序有多稳。
+// 只让检查项分值随机浮动（各维度内重新归一），证据和红线核查不变，看已证实分的排序有多稳。
 export function checkWeightRobustness(companies, fw, weights, mode = 'conservative', opts = {}) {
   const n = opts.n ?? 2000, sigma = opts.sigma ?? 0.5;
   const rnd = mulberry32(opts.seed ?? 20261011);
