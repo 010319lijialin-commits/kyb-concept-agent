@@ -7,6 +7,7 @@
 - **交互页面**：`dist/radar.html`（单文件，双击打开，可直接发群）
 - **方法附录**：[METHOD.md](METHOD.md)
 - **改动说明**：[CHANGELOG.md](CHANGELOG.md)
+- **产品架构图**：`dist/architecture.html`（也在交互页面的「方法」部分）
 
 ## 页面结构（按 CEO 的问题）
 

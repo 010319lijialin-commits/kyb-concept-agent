@@ -1,0 +1,66 @@
+<title>雷达产品架构</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 版式：一张架构图 + 三段说明，和雷达页面同一套颜色 */
+:root {
+  --paper: #f5f7fa;
+  --sheet: #ffffff;
+  --ink: #13203a;
+  --ink-2: #4a5873;
+  --rule: #d9dfe9;
+  --accent: #1f5fd1;
+  --accent-soft: #e4ecfb;
+  --rival: #c2620a;
+  --rival-soft: #fbeedd;
+  --bar: #9aa6bb;
+  --good: #1d7a4f;
+  --good-soft: #e1f3ea;
+  --bad: #b3372b;
+  --bad-soft: #fbe6e3;
+  --warn: #946200;
+  --warn-soft: #fbf0d6;
+  --hatch: #c9d0dc;
+  --heat-0: #eef2f8;
+  --heat-5: #1f5fd1;
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1522; --sheet: #161e2e; --ink: #e6ebf4; --ink-2: #9aa8c0; --rule: #2a3550;
+    --accent: #7ea6ff; --accent-soft: #1c2a48; --rival: #f2a65a; --rival-soft: #3a2a17; --bar: #56647e;
+    --good: #5fcf98; --good-soft: #15302a; --bad: #ff8a7d; --bad-soft: #3a1d1c; --warn: #f0c060; --warn-soft: #362b12;
+    --hatch: #3a465f; --heat-0: #1b2438; --heat-5: #7ea6ff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1522; --sheet: #161e2e; --ink: #e6ebf4; --ink-2: #9aa8c0; --rule: #2a3550;
+  --accent: #7ea6ff; --accent-soft: #1c2a48; --rival: #f2a65a; --rival-soft: #3a2a17; --bar: #56647e;
+  --good: #5fcf98; --good-soft: #15302a; --bad: #ff8a7d; --bad-soft: #3a1d1c; --warn: #f0c060; --warn-soft: #362b12;
+  --hatch: #3a465f; --heat-0: #1b2438; --heat-5: #7ea6ff; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 22px; }
+h1 { font-family: var(--font-display); font-size: clamp(24px, 3.4vw, 30px); font-weight: 900; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-size: 17px; margin: 0; }
+p { margin: 0; }
+.label { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-2); }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; min-width: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols .card { display: grid; gap: 8px; align-content: start; font-size: 14px; }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+</style>
+<div class="wrap">
+  <span class="label">长虹佳华 · META 一代竞争力雷达</span>
+  <h1>雷达产品架构</h1>
+  <div class="card"><!--__ARCH__--></div>
+  <div class="cols">
+    <div class="card"><h2>模型只做两件事</h2><ul><li>便宜模型抽取事实，每条必须带原文引文，程序核对引文确实在网页里。</li><li>强模型只回答检查项「成立 / 不成立 / 查不到」，并列出依据；没有证据的结论自动改成「查不到」。</li></ul></div>
+    <div class="card"><h2>代码负责所有结论</h2><ul><li>来源分级、门槛、打分、证据封顶、排名概率、翻盘条件、提醒都是规则代码，结果可以复算。</li><li>同一份引擎在页面里运行，调权重、增减公司、录情报时结论实时重算。</li></ul></div>
+    <div class="card"><h2>人在闭环里</h2><ul><li>销售录入的情报、复核确认的结论写回证据台账。</li><li>权重由业务负责人在页面里调整或用两两比较法确定。</li><li>规划中：标准答案集评测模型判断；Meta 最终选择回流校准权重。</li></ul></div>
+  </div>
+</div>

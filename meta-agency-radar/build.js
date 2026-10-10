@@ -19,10 +19,13 @@ const data = {
   prev: JSON.parse(read(path.join(runsDir, prevFile))),
 };
 const scoreJs = read(path.join(ROOT, 'lib', 'score.js')).replace(/^export /gm, '');
+const arch = read(path.join(ROOT, 'web', 'arch.fragment.html'));
 const html = read(path.join(ROOT, 'web', 'radar.html'))
+  .replace('<!--__ARCH__-->', () => arch)
   .replace('/*__SCORE_JS__*/', () => scoreJs)
   .replace('/*__DATA__*/', () => JSON.stringify(data).replace(/</g, '\\u003c'));
 
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'dist', 'radar.html'), html);
+fs.writeFileSync(path.join(ROOT, 'dist', 'architecture.html'), read(path.join(ROOT, 'web', 'architecture.html')).replace('<!--__ARCH__-->', () => arch));
 console.log(`dist/radar.html ← 本期 ${runFile}，对比 ${prevFile}`);

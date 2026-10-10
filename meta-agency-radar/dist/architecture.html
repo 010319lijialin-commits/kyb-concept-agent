@@ -1,0 +1,210 @@
+<title>雷达产品架构</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 版式：一张架构图 + 三段说明，和雷达页面同一套颜色 */
+:root {
+  --paper: #f5f7fa;
+  --sheet: #ffffff;
+  --ink: #13203a;
+  --ink-2: #4a5873;
+  --rule: #d9dfe9;
+  --accent: #1f5fd1;
+  --accent-soft: #e4ecfb;
+  --rival: #c2620a;
+  --rival-soft: #fbeedd;
+  --bar: #9aa6bb;
+  --good: #1d7a4f;
+  --good-soft: #e1f3ea;
+  --bad: #b3372b;
+  --bad-soft: #fbe6e3;
+  --warn: #946200;
+  --warn-soft: #fbf0d6;
+  --hatch: #c9d0dc;
+  --heat-0: #eef2f8;
+  --heat-5: #1f5fd1;
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1522; --sheet: #161e2e; --ink: #e6ebf4; --ink-2: #9aa8c0; --rule: #2a3550;
+    --accent: #7ea6ff; --accent-soft: #1c2a48; --rival: #f2a65a; --rival-soft: #3a2a17; --bar: #56647e;
+    --good: #5fcf98; --good-soft: #15302a; --bad: #ff8a7d; --bad-soft: #3a1d1c; --warn: #f0c060; --warn-soft: #362b12;
+    --hatch: #3a465f; --heat-0: #1b2438; --heat-5: #7ea6ff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1522; --sheet: #161e2e; --ink: #e6ebf4; --ink-2: #9aa8c0; --rule: #2a3550;
+  --accent: #7ea6ff; --accent-soft: #1c2a48; --rival: #f2a65a; --rival-soft: #3a2a17; --bar: #56647e;
+  --good: #5fcf98; --good-soft: #15302a; --bad: #ff8a7d; --bad-soft: #3a1d1c; --warn: #f0c060; --warn-soft: #362b12;
+  --hatch: #3a465f; --heat-0: #1b2438; --heat-5: #7ea6ff; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.65; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 22px; }
+h1 { font-family: var(--font-display); font-size: clamp(24px, 3.4vw, 30px); font-weight: 900; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-size: 17px; margin: 0; }
+p { margin: 0; }
+.label { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-2); }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; min-width: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols .card { display: grid; gap: 8px; align-content: start; font-size: 14px; }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+</style>
+<div class="wrap">
+  <span class="label">长虹佳华 · META 一代竞争力雷达</span>
+  <h1>雷达产品架构</h1>
+  <div class="card"><style>
+.arch { color: var(--ink); }
+.arch svg { display: block; width: 100%; height: auto; min-width: 760px; font-family: var(--font-body); }
+.arch .n-code { fill: var(--sheet); stroke: var(--ink-2); stroke-width: 1.2; }
+.arch .n-model { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.arch .n-human { fill: var(--rival-soft); stroke: var(--rival); stroke-width: 1.2; }
+.arch .n-data { fill: var(--paper); stroke: var(--rule); stroke-width: 1.2; }
+.arch .n-store { fill: var(--heat-0); stroke: var(--ink-2); stroke-width: 1.2; }
+.arch .plan { stroke-dasharray: 5 4; }
+.arch .ln { stroke: currentColor; stroke-width: 1.3; fill: none; }
+.arch .ln.dash { stroke-dasharray: 5 4; }
+.arch .h { font-size: 13px; font-weight: 700; fill: var(--ink-2); }
+.arch .t { font-size: 13px; font-weight: 700; fill: currentColor; }
+.arch .s { font-size: 11px; fill: var(--ink-2); }
+.arch .lb { font-size: 11px; fill: currentColor; }
+.arch .tg-model { font-size: 11px; font-weight: 700; fill: var(--accent); }
+.arch .tg-code { font-size: 11px; fill: var(--ink-2); }
+.arch .tg-human { font-size: 11px; font-weight: 700; fill: var(--rival); }
+.arch figcaption { font-size: 13px; color: var(--ink-2); margin-top: 8px; max-width: 72em; }
+.arch .scrollbox { overflow-x: auto; }
+</style>
+<figure class="arch" style="margin:0">
+  <div class="scrollbox">
+  <svg viewBox="0 0 1160 540" role="img" aria-label="雷达的产品架构：数据源经过 Agent 流水线写入证据台账，评分引擎用纯代码读取证据和评估框架算出门槛、分数、概率和提醒，输出到页面、简报和飞书；模型只出现在抽取和判断检查项两步，人工复核和新情报写回证据台账。">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+      </marker>
+    </defs>
+
+    <!-- 列标题 -->
+    <text class="h" x="110" y="20" text-anchor="middle">数据源</text>
+    <text class="h" x="375" y="20" text-anchor="middle">Agent 流水线（每周一自动跑）</text>
+    <text class="h" x="600" y="20" text-anchor="middle">存储</text>
+    <text class="h" x="815" y="20" text-anchor="middle">评分引擎（纯代码，可复算）</text>
+    <text class="h" x="1050" y="20" text-anchor="middle">输出与协作</text>
+
+    <!-- 数据源 -->
+    <rect class="n-human" x="20" y="72" width="180" height="46" rx="5"/>
+    <text class="t" x="32" y="91">内部情报</text><text class="s" x="32" y="108">销售、BD 录入</text>
+    <rect class="n-human" x="20" y="130" width="180" height="46" rx="5"/>
+    <text class="t" x="32" y="149">名单与抓手</text><text class="s" x="32" y="166">companies.json</text>
+    <rect class="n-data" x="20" y="188" width="180" height="46" rx="5"/>
+    <text class="t" x="32" y="207">平台官方目录</text><text class="s" x="32" y="224">Meta · TikTok · Google</text>
+    <rect class="n-data" x="20" y="246" width="180" height="46" rx="5"/>
+    <text class="t" x="32" y="265">公开网页</text><text class="s" x="32" y="282">官网 · 媒体 · 招聘</text>
+    <rect class="n-data plan" x="20" y="304" width="180" height="46" rx="5"/>
+    <text class="t" x="32" y="323">工商与司法数据</text><text class="s" x="32" y="340">V2 接入</text>
+
+    <!-- 流水线 -->
+    <rect class="n-code" x="260" y="72" width="230" height="58" rx="5"/>
+    <text class="t" x="272" y="93">① 核对官方名单</text><text class="tg-code" x="478" y="93" text-anchor="end">代码</text>
+    <text class="s" x="272" y="114">名单有变化单独提醒</text>
+    <rect class="n-code" x="260" y="150" width="230" height="58" rx="5"/>
+    <text class="t" x="272" y="171">② 检索</text><text class="tg-code" x="478" y="171" text-anchor="end">搜索接口</text>
+    <text class="s" x="272" y="192">每家 × 每维度 1 条 + 种子链接</text>
+    <rect class="n-model" x="260" y="228" width="230" height="58" rx="5"/>
+    <text class="t" x="272" y="249">③ 抽取事实</text><text class="tg-model" x="478" y="249" text-anchor="end">便宜模型</text>
+    <text class="s" x="272" y="270">引文须在原网页；按网址定 A/B/C 级</text>
+    <rect class="n-model" x="260" y="306" width="230" height="58" rx="5"/>
+    <text class="t" x="272" y="327">④ 判断检查项</text><text class="tg-model" x="478" y="327" text-anchor="end">强模型</text>
+    <text class="s" x="272" y="348">只答 成立 / 不成立 / 查不到</text>
+    <line class="ln" x1="375" y1="130" x2="375" y2="148" marker-end="url(#ah)"/><text class="lb" x="383" y="144">名单</text>
+    <line class="ln" x1="375" y1="208" x2="375" y2="226" marker-end="url(#ah)"/><text class="lb" x="383" y="222">网页</text>
+    <line class="ln" x1="375" y1="286" x2="375" y2="304" marker-end="url(#ah)"/><text class="lb" x="383" y="300">事实 + 引文</text>
+
+    <!-- 数据源 → 流水线 -->
+    <line class="ln" x1="200" y1="153" x2="258" y2="108" marker-end="url(#ah)"/><text class="lb" x="222" y="124" text-anchor="middle">名单</text>
+    <line class="ln" x1="200" y1="211" x2="258" y2="122" marker-end="url(#ah)"/><text class="lb" x="236" y="172" text-anchor="middle">抓取</text>
+    <line class="ln" x1="200" y1="269" x2="258" y2="188" marker-end="url(#ah)"/><text class="lb" x="238" y="232" text-anchor="middle">检索</text>
+    <line class="ln" x1="200" y1="269" x2="258" y2="252" marker-end="url(#ah)"/><text class="lb" x="229" y="282" text-anchor="middle">读正文</text>
+    <line class="ln dash" x1="200" y1="327" x2="258" y2="276" marker-end="url(#ah)"/><text class="lb" x="231" y="324" text-anchor="middle">工商判决</text>
+
+    <!-- 证据台账 -->
+    <rect class="n-store" x="540" y="72" width="120" height="292" rx="5"/>
+    <text class="t" x="600" y="200" text-anchor="middle">证据台账</text>
+    <text class="s" x="600" y="220" text-anchor="middle">runs/日期.json</text>
+    <text class="s" x="600" y="244" text-anchor="middle">检查项判断</text>
+    <text class="s" x="600" y="260" text-anchor="middle">+ 来源·等级·日期</text>
+    <line class="ln" x1="490" y1="335" x2="538" y2="335" marker-end="url(#ah)"/><text class="lb" x="514" y="328" text-anchor="middle">写入</text>
+    <!-- 内部情报 → 台账（上方通道） -->
+    <polyline class="ln" points="200,95 225,95 225,54 600,54 600,70" marker-end="url(#ah)"/><text class="lb" x="412" y="49" text-anchor="middle">人工录入（等同一次重跑）</text>
+
+    <!-- 评分引擎 -->
+    <rect class="n-code" x="710" y="72" width="210" height="46" rx="5"/>
+    <text class="t" x="722" y="91">门槛判定</text><text class="s" x="722" y="108">6 种状态，查不到 ≠ 通过</text>
+    <rect class="n-code" x="710" y="130" width="210" height="46" rx="5"/>
+    <text class="t" x="722" y="149">检查项打分</text><text class="s" x="722" y="166">无 A 级证据封顶 3.5</text>
+    <rect class="n-code" x="710" y="188" width="210" height="46" rx="5"/>
+    <text class="t" x="722" y="207">加权总分</text><text class="s" x="722" y="224">已证实分 + 上限</text>
+    <rect class="n-code" x="710" y="246" width="210" height="46" rx="5"/>
+    <text class="t" x="722" y="265">排名概率</text><text class="s" x="722" y="282">抽样 3000 次，含门槛出局</text>
+    <rect class="n-code" x="710" y="304" width="210" height="46" rx="5"/>
+    <text class="t" x="722" y="323">翻盘条件 · 对比上期</text><text class="s" x="722" y="340">生成机会 / 威胁提醒</text>
+    <line class="ln" x1="815" y1="118" x2="815" y2="128" marker-end="url(#ah)"/>
+    <line class="ln" x1="815" y1="176" x2="815" y2="186" marker-end="url(#ah)"/>
+    <line class="ln" x1="815" y1="234" x2="815" y2="244" marker-end="url(#ah)"/>
+    <line class="ln" x1="815" y1="292" x2="815" y2="302" marker-end="url(#ah)"/>
+    <line class="ln" x1="660" y1="95" x2="708" y2="95" marker-end="url(#ah)"/><text class="lb" x="684" y="88" text-anchor="middle">读取</text>
+
+    <!-- 输出 -->
+    <rect class="n-code" x="960" y="72" width="180" height="50" rx="5"/>
+    <text class="t" x="972" y="92">交互页面</text><text class="s" x="972" y="110">同一引擎在浏览器里重算</text>
+    <rect class="n-code" x="960" y="138" width="180" height="50" rx="5"/>
+    <text class="t" x="972" y="158">一页简报 PDF</text><text class="s" x="972" y="176">BRIEF.md 自动排版</text>
+    <rect class="n-code" x="960" y="204" width="180" height="50" rx="5"/>
+    <text class="t" x="972" y="224">飞书卡片 · 提醒</text><text class="s" x="972" y="242">机会 · 威胁 · 复核</text>
+    <rect class="n-human" x="960" y="270" width="180" height="50" rx="5"/>
+    <text class="t" x="972" y="290">人工复核队列</text><text class="s" x="972" y="308">低置信 · 冲突 · 负面结论</text>
+    <line class="ln" x1="920" y1="211" x2="945" y2="211"/>
+    <line class="ln" x1="945" y1="97" x2="945" y2="295"/>
+    <line class="ln" x1="945" y1="97" x2="958" y2="97" marker-end="url(#ah)"/>
+    <line class="ln" x1="945" y1="163" x2="958" y2="163" marker-end="url(#ah)"/>
+    <line class="ln" x1="945" y1="229" x2="958" y2="229" marker-end="url(#ah)"/>
+    <line class="ln" x1="945" y1="295" x2="958" y2="295" marker-end="url(#ah)"/>
+    <text class="lb" x="952" y="66">结论 · 提醒</text>
+    <!-- 复核 → 台账（最上方通道） -->
+    <polyline class="ln" points="1140,295 1152,295 1152,38 620,38 620,70" marker-end="url(#ah)"/><text class="lb" x="886" y="33" text-anchor="middle">人工确认后写回</text>
+
+    <!-- 评估框架 -->
+    <rect class="n-store" x="260" y="412" width="660" height="50" rx="5"/>
+    <text class="t" x="590" y="433" text-anchor="middle">评估框架 framework.json</text>
+    <text class="s" x="590" y="451" text-anchor="middle">维度 · 检查项 · 门槛规则 · 证据分级 · 权重（页面里可调，两两比较法定权）</text>
+    <line class="ln" x1="375" y1="412" x2="375" y2="366" marker-end="url(#ah)"/><text class="lb" x="383" y="394">检查项清单</text>
+    <line class="ln" x1="815" y1="412" x2="815" y2="352" marker-end="url(#ah)"/><text class="lb" x="823" y="390">规则 · 权重</text>
+
+    <!-- 规划中的校准闭环 -->
+    <rect class="n-data plan" x="20" y="412" width="180" height="50" rx="5"/>
+    <text class="t" x="32" y="432">标准答案集</text><text class="s" x="32" y="450">V1.5：人工核实过的检查项</text>
+    <polyline class="ln dash" points="200,425 230,425 230,352 258,352" marker-end="url(#ah)"/><text class="lb" x="236" y="396">评测 · 回归</text>
+    <rect class="n-data plan" x="960" y="412" width="180" height="50" rx="5"/>
+    <text class="t" x="972" y="432">回测与校准</text><text class="s" x="972" y="450">V3：Meta 最终选择回流</text>
+    <line class="ln dash" x1="960" y1="437" x2="922" y2="437" marker-end="url(#ah)"/><text class="lb" x="941" y="430" text-anchor="middle">校准</text>
+
+    <!-- 图例 -->
+    <rect class="n-model" x="20" y="496" width="18" height="12" rx="2"/><text class="lb" x="44" y="506">模型（只在抽取和判断两步）</text>
+    <rect class="n-code" x="220" y="496" width="18" height="12" rx="2"/><text class="lb" x="244" y="506">代码（结果可复算）</text>
+    <rect class="n-human" x="380" y="496" width="18" height="12" rx="2"/><text class="lb" x="404" y="506">人（录入、复核、拍板）</text>
+    <rect class="n-store" x="560" y="496" width="18" height="12" rx="2"/><text class="lb" x="584" y="506">存储</text>
+    <rect class="n-data plan" x="650" y="496" width="18" height="12" rx="2"/><text class="lb" x="674" y="506">虚线：规划中</text>
+  </svg>
+  </div>
+  <figcaption>模型只出现在「抽取事实」和「判断检查项」两步，而且只回答检查项是否成立；门槛、打分、概率、翻盘条件和提醒全部由代码计算，同一份代码也在页面里运行，所以调权重、录情报时结论能实时重算。人工录入的情报和复核后的结论写回证据台账，下一次重跑在此基础上进行。虚线是规划中的校准闭环。</figcaption>
+</figure>
+</div>
+  <div class="cols">
+    <div class="card"><h2>模型只做两件事</h2><ul><li>便宜模型抽取事实，每条必须带原文引文，程序核对引文确实在网页里。</li><li>强模型只回答检查项「成立 / 不成立 / 查不到」，并列出依据；没有证据的结论自动改成「查不到」。</li></ul></div>
+    <div class="card"><h2>代码负责所有结论</h2><ul><li>来源分级、门槛、打分、证据封顶、排名概率、翻盘条件、提醒都是规则代码，结果可以复算。</li><li>同一份引擎在页面里运行，调权重、增减公司、录情报时结论实时重算。</li></ul></div>
+    <div class="card"><h2>人在闭环里</h2><ul><li>销售录入的情报、复核确认的结论写回证据台账。</li><li>权重由业务负责人在页面里调整或用两两比较法确定。</li><li>规划中：标准答案集评测模型判断；Meta 最终选择回流校准权重。</li></ul></div>
+  </div>
+</div>
