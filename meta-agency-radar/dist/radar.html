@@ -259,6 +259,29 @@ button.link { font: inherit; font-size: 12px; background: none; border: 0; color
 .co-sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; }
 .co-sum .sc { font-family: var(--font-mono); font-weight: 600; font-size: 17px; }
 .co-sum .pos { grid-column: 1 / -1; font-size: 13px; color: var(--ink-2); }
+/* 可点 / 可调 / 会变 的统一标记 */
+.badge { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-body); font-size: 11px; font-weight: 500; line-height: 1.7; border-radius: 999px; padding: 0 8px; white-space: nowrap; vertical-align: 1px; }
+.badge.tap { border: 1px solid var(--rule); color: var(--accent); }
+.badge.tap::before { content: "▸"; }
+.badge.adj { background: var(--rival-soft); color: var(--rival); }
+.badge.adj::before { content: "↔"; }
+.badge.live { background: var(--accent-soft); color: var(--accent); }
+.badge.live::before { content: "↻"; }
+.guide { background: var(--sheet); border: 1px solid var(--rule); border-left: 4px solid var(--rival); border-radius: 6px; padding: 14px 18px; display: grid; gap: 10px; }
+.guide ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.ctl-hint { font-size: 12px; color: var(--rival); }
+/* 变化提示 */
+.delta { font-family: var(--font-mono); font-size: 12px; font-weight: 500; margin-left: 6px; white-space: nowrap; }
+.delta.good { color: var(--good); }
+.delta.bad { color: var(--bad); }
+.delta.flat { color: var(--ink-2); }
+.flash { animation: flash 2.4s ease-out; border-radius: 4px; }
+@keyframes flash { 0%, 35% { background-color: var(--warn-soft); box-shadow: 0 0 0 2px var(--warn); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: max-content; max-width: calc(100vw - 32px); background: var(--ink); color: var(--paper); border-radius: 8px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28); z-index: 20; font-size: 14px; }
+.toast b { color: var(--paper); }
+.toast button { font: inherit; font-size: 13px; border-radius: 4px; padding: 3px 10px; cursor: pointer; border: 1px solid var(--paper); background: transparent; color: var(--paper); }
+.toast button.primary { background: var(--paper); color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; outline: 2px solid var(--warn); } }
 footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule); padding-top: 14px; }
 @media (prefers-reduced-motion: reduce) { details.why > summary::before { transition: none; } }
 </style>
@@ -272,22 +295,32 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
       <span>4 家竞标对手 + 长虹佳华对照</span>
       <span>先过门槛，再比分数；查不到就标「查不到」</span>
       <span id="stateTag"></span>
+      <button class="link" type="button" id="guideOpen" hidden>使用说明</button>
     </div>
   </header>
   <nav class="jump" aria-label="页面目录">
     <a href="#verdict">结论</a><a href="#win">能不能赢</a><a href="#whyus">凭什么选我们</a><a href="#robust">稳不稳</a><a href="#play">怎么打</a><a href="#worth">值不值得</a><a href="#adjust">调一调</a><a href="#evidence">证据</a><a href="#method">方法</a>
   </nav>
+  <div class="guide" id="guide" role="note" aria-label="使用说明">
+    <div class="row" style="justify-content:space-between"><b>第一次用？三步看懂这个页面</b><button class="link" type="button" id="guideClose">知道了，收起</button></div>
+    <ol>
+      <li><span class="badge tap">可点开</span> 带 ▸ 的行都能点开，一层层看到「为什么」、各家对比、证据和来源。</li>
+      <li><span class="badge adj">可调</span> 在「调一调」拖权重、增减公司、录入新情报；「怎么打」可以切换情景，「值不值得」可以改数字。</li>
+      <li><span class="badge live">会随调整变化</span> 调完后，变了的数字会闪一下，和初始结论不同的数字旁边标出「vs 初始」；屏幕底部弹出变化摘要，顶部黄框写明变了什么、因为什么。</li>
+    </ol>
+    <div class="row"><button class="btn" type="button" id="tryBtn">试一试：把「客户增量」权重从 25 调到 10</button><span class="hint">随时可以点「恢复初始结论」</span></div>
+  </div>
 
   <!-- 第一屏 -->
   <section id="verdict" aria-labelledby="verdict-h">
     <div class="hero">
-      <h2 id="verdict-h" class="label" style="font-family:var(--font-body);font-size:12px;font-weight:500">结论</h2>
+      <div class="row" style="justify-content:space-between"><h2 id="verdict-h" class="label" style="font-family:var(--font-body);font-size:12px;font-weight:500">结论</h2><span class="badge live">会随调整变化</span></div>
       <p class="headline" id="headline"></p>
       <div class="stats" id="stats"></div>
       <div class="change" id="changeBox" hidden></div>
       <div class="two">
         <div class="stack">
-          <span class="label">怎么做（点开看为什么）</span>
+          <span class="label">怎么做 <span class="badge tap">可点开看为什么</span></span>
           <ol class="actions" id="actions"></ol>
         </div>
         <div class="stack">
@@ -300,7 +333,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 能不能赢 -->
   <section id="win" aria-labelledby="win-h">
-    <div class="sec-head"><h2 id="win-h">能不能赢</h2><span class="q">先看门槛，再看分数和概率</span></div>
+    <div class="sec-head"><h2 id="win-h">能不能赢</h2><span class="q">先看门槛，再看分数和概率 <span class="badge live">会随调整变化</span></span></div>
     <div class="card">
       <div class="scroll"><table class="board" id="board"></table></div>
       <div class="legend">
@@ -310,7 +343,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
         <span>概率：门槛和查不到的信息随机抽样 3000 次，各家在名单内排名的比例</span>
       </div>
       <p class="hint">概率的范围：只在名单内的公司之间比较，只反映门槛和查得到的信息。Meta 的主观判断、路演表现、名单外的其他候选人都不在模型里，所以它不是「拿到一代的概率」。</p>
-      <p class="hint">点开一行看分数怎么算的、门槛为什么是这个结果。</p>
+      <p class="hint"><span class="badge tap">可点开</span> 下面每一行：分数怎么算的、门槛为什么是这个结果。</p>
       <div id="boardDetail"></div>
     </div>
     <div class="card">
@@ -321,7 +354,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 凭什么选我们 -->
   <section id="whyus" aria-labelledby="whyus-h">
-    <div class="sec-head"><h2 id="whyus-h">凭什么选我们</h2><span class="q">Meta 要补的缺口，谁能补</span></div>
+    <div class="sec-head"><h2 id="whyus-h">凭什么选我们</h2><span class="q">Meta 要补的缺口，谁能补 <span class="badge live">会随调整变化</span></span></div>
     <div class="card">
       <div class="scroll"><table class="matrix" id="matrix"></table></div>
       <div class="legend">
@@ -340,7 +373,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 稳不稳 -->
   <section id="robust" aria-labelledby="robust-h">
-    <div class="sec-head"><h2 id="robust-h">结论稳不稳</h2><span class="q">哪些数是硬的，补什么能翻盘</span></div>
+    <div class="sec-head"><h2 id="robust-h">结论稳不稳</h2><span class="q">哪些数是硬的，补什么能翻盘 <span class="badge live">会随调整变化</span></span></div>
     <div class="card">
       <h3>证据强度</h3>
       <div class="scroll"><div class="heat" id="heat"></div></div>
@@ -369,13 +402,14 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 怎么打 -->
   <section id="play" aria-labelledby="play-h">
-    <div class="sec-head"><h2 id="play-h">怎么打</h2><span class="q">选好情景，看主线怎么变</span></div>
+    <div class="sec-head"><h2 id="play-h">怎么打</h2><span class="q">选好情景，看主线怎么变 <span class="badge adj">可调</span></span></div>
     <div class="card">
       <div class="stack">
         <div class="row"><span class="label" style="min-width:9em">Meta 这次给几个名额</span><div class="seg" id="segSlots"></div></div>
         <div class="row"><span class="label" style="min-width:9em">我方出海客户结构</span><div class="seg" id="segMix"></div></div>
         <div class="row"><span class="label" style="min-width:9em">能否签下产业带伙伴</span><div class="seg" id="segAlly"></div></div>
       </div>
+      <p class="ctl-hint">点上面的选项，下面的推荐主线、关键三页、注意事项和第一屏「需要你拍板」都会跟着变。</p>
       <div class="story" id="story"></div>
     </div>
     <div class="two">
@@ -401,9 +435,9 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 值不值得 -->
   <section id="worth" aria-labelledby="worth-h">
-    <div class="sec-head"><h2 id="worth-h">值不值得</h2><span class="q">一代的账怎么算</span></div>
+    <div class="sec-head"><h2 id="worth-h">值不值得</h2><span class="q">一代的账怎么算 <span class="badge adj">可调</span></span></div>
     <div class="card">
-      <p class="small"><span class="tag warn">示例假设</span> 下面的默认值不是真实数据，只为说明账的结构。换成内部数据后结论才可用。</p>
+      <p class="small"><span class="tag warn">示例假设</span> 下面的默认值不是真实数据，只为说明账的结构。<span class="ctl-hint">左边的数字都能改，右边的账和打平线会跟着变。</span></p>
       <div class="econ">
         <div class="inp" id="econIn"></div>
         <div class="stack">
@@ -416,7 +450,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 调一调 -->
   <section id="adjust" aria-labelledby="adjust-h">
-    <div class="sec-head"><h2 id="adjust-h">调一调，结论怎么变</h2><span class="q">改动会实时反映到上面所有结论</span></div>
+    <div class="sec-head"><h2 id="adjust-h">调一调，结论怎么变</h2><span class="q">在这里调，上面所有标 <span class="badge live">会随调整变化</span> 的地方都会重算</span></div>
     <div class="tabs" role="tablist">
       <button role="tab" id="tab-mine" aria-controls="pane-mine" type="button">我的判断</button>
       <button role="tab" id="tab-market" aria-controls="pane-market" type="button">市场新信息</button>
@@ -425,13 +459,14 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
       <div class="change echo" hidden></div>
       <div class="two">
         <div class="stack">
-          <span class="label">权重：Meta 最看重什么</span>
+          <span class="label">权重：Meta 最看重什么 <span class="badge adj">拖动调整</span></span>
+          <span class="ctl-hint">拖动后会重算：顶部结论和四个数、排名表、证据强度、差距从哪来、翻盘条件。</span>
           <div class="stack" id="sliders" style="gap:14px"></div>
           <details class="why lv2" data-k="ahp"><summary><span>用两两比较法（层次分析法）定权重</span></summary><div class="body" id="ahpBox"></div></details>
         </div>
         <div class="stack" style="gap:18px">
           <div class="stack">
-            <span class="label">比哪几家</span>
+            <span class="label">比哪几家 <span class="badge adj">勾选增减</span></span>
             <div class="chips" id="roster"></div>
             <form class="row" id="addForm">
               <input type="text" id="addName" placeholder="加一家公司，如 钛动科技" aria-label="新增公司名称">
@@ -440,7 +475,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
             <p class="hint">新加的公司所有检查项都是「查不到」，门槛为待定；到「市场新信息」录入情报，或跑一次 Agent 后才有分数。</p>
           </div>
           <div class="stack">
-            <label class="label" for="modeSel">查不到的信息怎么算</label>
+            <label class="label" for="modeSel">查不到的信息怎么算 <span class="badge adj">可选</span></label>
             <select id="modeSel"></select>
           </div>
           <details class="why lv2" data-k="unc"><summary><span>概率的不确定性假设</span></summary><div class="body" id="uncBox"></div></details>
@@ -452,7 +487,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
       <div class="change echo" hidden></div>
       <div class="two">
         <div class="stack">
-          <span class="label">录入一条新情报</span>
+          <span class="label">录入一条新情报 <span class="badge adj">可录入</span></span>
           <p class="small muted">比如销售听说某家拿到融资、被处罚、签下一个产业带。录入后等同一次重跑：检查项更新，分数、门槛、概率、提醒都跟着变。</p>
           <form class="intel-form" id="intelForm">
             <select id="intelCo" aria-label="公司"></select>
@@ -481,7 +516,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
 
   <!-- 证据 -->
   <section id="evidence" aria-labelledby="evidence-h">
-    <div class="sec-head"><h2 id="evidence-h">证据</h2><span class="q">每个分数怎么来的</span></div>
+    <div class="sec-head"><h2 id="evidence-h">证据</h2><span class="q">每个分数怎么来的 <span class="badge tap">可点开</span></span></div>
     <div class="card">
       <h3>资质核验表</h3>
       <p class="small muted">打分之前先核对：各家对外宣称的平台身份，官方目录里到底有没有。</p>
@@ -504,6 +539,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
   </section>
 
   <footer id="foot"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </div>
 
 <script>
@@ -1141,13 +1177,22 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     h += `在这 ${n} 家里，长虹佳华排第一的概率约 ${pct(p.pFirst)}，排进前 2 约 ${pct(p.pTop2)}，因门槛出局约 ${pct(p.pOut)}。`;
     if (k.flip && k.flip.gap > 0 && k.flip.closes && k.flip.checkPath.length) h += `补上${k.flip.checkPath.map((s) => `「${s.check.text.split('（')[0]}」`).join('和')}就能追平。`;
     $('headline').textContent = h;
+    $('headline').dataset.fk = 'headline';
 
     const near = k.nearest;
+    const b0 = BASE.k.self, p0 = BASE.mc[SELF];
+    const dl = (cur, base, kind, upGood) => {
+      if (base == null) return '';
+      const d = kind === 'pct' ? Math.round(cur * 100) - Math.round(base * 100) : Math.round((cur - base) * 10) / 10;
+      if (!d) return '';
+      const good = upGood ? d > 0 : d < 0;
+      return `<span class="delta ${good ? 'good' : 'bad'}" title="和初始结论相比">${d > 0 ? '+' : ''}${d}${kind === 'pct' ? '%' : ''} vs 初始</span>`;
+    };
     $('stats').innerHTML = `
-      <div class="stat"><span class="label">已证实分</span><span class="v">${f1(me.total)} <small>vs ${esc(near?.company.short || '—')} ${f1(near?.total)}</small></span><span class="hint">只算有证据的检查项</span></div>
-      <div class="stat"><span class="label">在这 ${R.scored.length} 家里排第一</span><span class="v">${pct(p.pFirst)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pFirst)}` : ''}</span></div>
-      <div class="stat"><span class="label">在这 ${R.scored.length} 家里排进前 2</span><span class="v">${pct(p.pTop2)}</span><span class="hint">按传闻的 2 个新名额</span></div>
-      <div class="stat"><span class="label">门槛出局概率</span><span class="v">${pct(p.pOut)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pOut)}` : ''}</span></div>`;
+      <div class="stat"><span class="label">已证实分</span><span class="v" data-fk="st-score">${f1(me.total)} <small>vs ${esc(near?.company.short || '—')} ${f1(near?.total)}</small></span><span class="hint">只算有证据的检查项${dl(me.total, b0?.total, 'score', true)}</span></div>
+      <div class="stat"><span class="label">在这 ${R.scored.length} 家里排第一</span><span class="v" data-fk="st-p1">${pct(p.pFirst)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pFirst)}` : ''}${dl(p.pFirst, p0?.pFirst, 'pct', true)}</span></div>
+      <div class="stat"><span class="label">在这 ${R.scored.length} 家里排进前 2</span><span class="v" data-fk="st-p2">${pct(p.pTop2)}</span><span class="hint">按传闻的 2 个新名额${dl(p.pTop2, p0?.pTop2, 'pct', true)}</span></div>
+      <div class="stat"><span class="label">门槛出局概率</span><span class="v" data-fk="st-out">${pct(p.pOut)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pOut)}` : ''}${dl(p.pOut, p0?.pOut, 'pct', false)}</span></div>`;
 
     renderActions(R);
     renderDecide(R);
@@ -1203,7 +1248,7 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     const small = R.scored.filter((r) => ['lingtok', 'addragon'].includes(r.id)).map((r) => r.company.short);
     const path = R.k.flip?.gap > 0 ? R.k.flip.checkPath : [];
     $('decide').innerHTML = `
-      <li><b>路演主线</b>：当前情景下推荐「${esc(st.title)}」。名额数和客户结构一变，主线就要换（见「怎么打」）。</li>
+      <li data-fk="decide-1"><b>路演主线</b>：当前情景下推荐「${esc(st.title)}」。名额数和客户结构一变，主线就要换（见「怎么打」）。</li>
       <li><b>是否启动结盟洽谈</b>${small.length ? `：和${esc(small.join('、'))}谈合作意向，路演时展示已锁定的增量客户` : ''}。</li>
       <li><b>7 天内补齐内部数据</b>，指定负责人：${path.length ? path.map((s) => esc(s.how || s.check.text)).join('；') + '（补上就能追平）；' : ''}授信额度和坏账率。</li>`;
   }
@@ -1260,15 +1305,18 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     $('board').innerHTML = `<thead><tr><th>名次</th><th>公司</th><th>资金门槛</th><th>合规门槛</th><th>分数（0–100）</th><th class="num">已证实</th><th>排第一</th><th>前 2</th><th class="num">门槛出局</th></tr></thead><tbody>` +
       scored.map((r) => {
         const p = mc[r.id];
+        const o = BASE.k.ranking.find((x) => x.id === r.id);
+        const rk = o && o.rank !== r.rank ? `<span class="delta ${o.rank > r.rank ? 'good' : 'bad'}" title="初始名次 ${o.rank}">${o.rank > r.rank ? '▲' : '▼'}${Math.abs(o.rank - r.rank)}</span>` : '';
+        const sd = o && Math.abs(o.total - r.total) >= 0.1 ? `<span class="delta flat" title="初始 ${f1(o.total)}">${r.total > o.total ? '+' : ''}${f1(r.total - o.total)}</span>` : '';
         return `<tr class="${r.company.role === 'self' ? 'self' : ''}">
-          <td class="rk">${r.rank}</td>
+          <td class="rk"><span data-fk="b-${r.id}-rk">${r.rank}</span>${rk}</td>
           <td><b>${esc(r.company.short)}</b>${r.company.role === 'self' ? ' <span class="tag">我方</span>' : ''}${r.company.added ? ' <span class="tag ghost">待采集</span>' : ''}</td>
           <td>${gateChip(r.gates.gate_fin)}</td><td>${gateChip(r.gates.gate_comp)}</td>
           <td><div class="track" title="已证实 ${f1(r.low)}，上限 ${f1(r.high)}，当前口径 ${f1(r.total)}"><span class="fill" style="width:${r.low}%"></span><span class="rng" style="left:${r.low}%;width:${Math.max(0, r.high - r.low)}%"></span><i style="left:${r.total}%"></i></div></td>
-          <td class="num">${f1(r.total)}<span class="muted small">–${f1(r.high)}</span></td>
-          <td><div class="prob"><span class="t"><b style="width:${p.pFirst * 100}%"></b></span><span>${pct(p.pFirst)}</span></div></td>
-          <td><div class="prob"><span class="t"><b style="width:${p.pTop2 * 100}%"></b></span><span>${pct(p.pTop2)}</span></div></td>
-          <td class="num">${pct(p.pOut)}</td>
+          <td class="num"><span data-fk="b-${r.id}-sc">${f1(r.total)}</span><span class="muted small">–${f1(r.high)}</span>${sd}</td>
+          <td><div class="prob"><span class="t"><b style="width:${p.pFirst * 100}%"></b></span><span data-fk="b-${r.id}-p1">${pct(p.pFirst)}</span></div></td>
+          <td><div class="prob"><span class="t"><b style="width:${p.pTop2 * 100}%"></b></span><span data-fk="b-${r.id}-p2">${pct(p.pTop2)}</span></div></td>
+          <td class="num"><span data-fk="b-${r.id}-out">${pct(p.pOut)}</span></td>
         </tr>`;
       }).join('') + '</tbody>';
     $('boardDetail').innerHTML = scored.map((r) => why(`b-${r.id}`,
@@ -1310,7 +1358,7 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
       scored.map((r) => `<span class="n ${r.id === SELF ? 'self' : ''}">${esc(r.company.short)}</span>${DIMS.map((d) => {
         const ds = r.dims[d.id];
         if (ds.allUnknown) return `<span class="cellh unk" title="${esc(r.company.short)} · ${esc(d.name)}：全部查不到">查不到</span>`;
-        return `<span class="cellh ${ds.strongYes ? '' : 'dash'}" style="${heatBg(ds.lo)}" title="${esc(r.company.short)} · ${esc(d.name)}：已证实 ${f1(ds.lo)}，上限 ${f1(ds.hi)}${ds.strongYes ? '' : '，只有自述或单一报道'}">${f1(ds.lo)}</span>`;
+        return `<span data-fk="h-${r.id}-${d.id}" class="cellh ${ds.strongYes ? '' : 'dash'}" style="${heatBg(ds.lo)}" title="${esc(r.company.short)} · ${esc(d.name)}：已证实 ${f1(ds.lo)}，上限 ${f1(ds.hi)}${ds.strongYes ? '' : '，只有自述或单一报道'}">${f1(ds.lo)}</span>`;
       }).join('')}<span class="cov">${r.coverage}%</span>`).join('');
 
     const rivals = scored.filter((r) => r.id !== SELF);
@@ -1324,7 +1372,7 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     $('diverge').innerHTML = `<div class="div">${rows.map(({ d, v }) => `<span>${esc(d.short)}</span>
       <span class="l">${v < 0 ? `<b style="width:${(-v / max) * 100}%"></b>` : ''}</span><span class="r">${v > 0 ? `<b style="width:${(v / max) * 100}%"></b>` : ''}</span>
       <span class="v">${v > 0 ? '+' : ''}${f1(v)}</span>`).join('')}
-      <span><b>合计</b></span><span></span><span></span><span class="v"><b>${me.total - rv.total > 0 ? '+' : ''}${f1(me.total - rv.total)}</b></span></div>`;
+      <span><b>合计</b></span><span></span><span></span><span class="v"><b data-fk="div-total">${me.total - rv.total > 0 ? '+' : ''}${f1(me.total - rv.total)}</b></span></div>`;
 
     const fl = flips(me, rv, FW, S.weights, S.mode);
     const parts = [];
@@ -1379,7 +1427,7 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
       $(id).innerHTML = SEG[k].map(([v, l]) => `<button type="button" data-seg="${k}" data-v="${v}" aria-pressed="${S.scen[k] === v}">${esc(l)}</button>`).join('');
     });
     const st = story();
-    $('story').innerHTML = `<span class="label">推荐主线</span><h3>${esc(st.title)}</h3><p class="small">${esc(st.line)}</p>
+    $('story').innerHTML = `<span class="label">推荐主线</span><h3 data-fk="story">${esc(st.title)}</h3><p class="small">${esc(st.line)}</p>
       <span class="label">路演里最重要的三页</span><ol class="small" style="margin:0;padding-left:20px">${st.pages.slice(0, 3).map((p) => `<li>${esc(p)}</li>`).join('')}</ol>
       ${st.risks.length ? `<span class="label">要注意</span><ul class="plain small">${st.risks.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}`;
   }
@@ -1606,13 +1654,54 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
   // ---------- 主循环 ----------
   let timer = null;
   function schedule() {
-    DIMS.forEach((d) => { const w = normalizeWeights(DIMS, S.weights); $('o-' + d.id).textContent = `${S.weights[d.id]} · ${pct(w[d.id])}`; });
+    DIMS.forEach((d) => { const w = normalizeWeights(DIMS, S.weights); $('o-' + d.id).textContent = `${S.weights[d.id]} · ${pct(w[d.id])}${S.weights[d.id] !== d.weight ? `（初始 ${d.weight}）` : ''}`; });
     clearTimeout(timer);
     timer = setTimeout(update, 120);
   }
+  let booted = false, LAST = null, toastTimer = null;
+  function snapshot() {
+    const m = {};
+    document.querySelectorAll('[data-fk]').forEach((el) => (m[el.dataset.fk] = el.textContent));
+    return m;
+  }
+  function flashChanged(before) {
+    let n = 0;
+    document.querySelectorAll('[data-fk]').forEach((el) => {
+      if (before[el.dataset.fk] !== undefined && before[el.dataset.fk] !== el.textContent) {
+        el.classList.remove('flash');
+        void el.offsetWidth;
+        el.classList.add('flash');
+        n++;
+      }
+    });
+    return n;
+  }
+  function showToast(R, n) {
+    const t = $('toast');
+    const me = R.k.self, was = LAST?.k.self;
+    const parts = [];
+    if (me && was) {
+      if (me.rank !== was.rank) parts.push(`长虹佳华 第 ${was.rank} → 第 ${me.rank}`);
+      if (Math.abs(me.total - was.total) >= 0.1) parts.push(`已证实分 ${f1(was.total)} → ${f1(me.total)}`);
+      const a = LAST.mc[SELF], b = R.mc[SELF];
+      if (Math.round(a.pTop2 * 100) !== Math.round(b.pTop2 * 100)) parts.push(`前 2 概率 ${pct(a.pTop2)} → ${pct(b.pTop2)}`);
+    }
+    R.k.ranking.forEach((r) => {
+      const o = LAST?.k.ranking.find((x) => x.id === r.id);
+      if (o && r.id !== SELF && o.rank !== r.rank) parts.push(`${r.company.short} 第 ${o.rank} → 第 ${r.rank}`);
+    });
+    t.innerHTML = parts.length
+      ? `<span><b>结论变了</b>：${esc(parts.slice(0, 3).join('；'))}${n ? `；页面上 ${n} 处数字已标黄` : ''}</span><button type="button" class="primary" data-goto="verdict">看结论</button><button type="button" id="toastX" aria-label="关闭">知道了</button>`
+      : `<span><b>结论没变</b>：这项调整对排名和概率影响不大${n ? `（${n} 处细节有变化，已标黄）` : ''}</span><button type="button" id="toastX" aria-label="关闭">知道了</button>`;
+    t.hidden = false;
+    $('toastX').onclick = () => (t.hidden = true);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.hidden = true), 9000);
+  }
   function update() {
     const w = normalizeWeights(DIMS, S.weights);
-    DIMS.forEach((d) => ($('o-' + d.id).textContent = `${S.weights[d.id]} · ${pct(w[d.id])}`));
+    DIMS.forEach((d) => ($('o-' + d.id).textContent = `${S.weights[d.id]} · ${pct(w[d.id])}${S.weights[d.id] !== d.weight ? `（初始 ${d.weight}）` : ''}`));
+    const before = booted ? snapshot() : {};
     const R = compute(current());
     renderHero(R);
     renderBoard(R);
@@ -1622,6 +1711,9 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     renderMarket();
     renderEvidence(R);
     renderMethod(R.scored.length);
+    if (booted) showToast(R, flashChanged(before));
+    LAST = R;
+    booted = true;
     save();
   }
   function reset() {
@@ -1649,7 +1741,7 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
       return;
     }
     const sg = e.target.closest('[data-seg]');
-    if (sg) { S.scen[sg.dataset.seg] = sg.dataset.v; renderPlay(); const R = compute(current()); renderDecide(R); save(); return; }
+    if (sg) { const before = snapshot(); S.scen[sg.dataset.seg] = sg.dataset.v; renderPlay(); renderDecide(LAST); flashChanged(before); save(); return; }
     if (e.target.closest('[data-reset]')) { reset(); return; }
     const del = e.target.closest('[data-del]');
     if (del) { S.intel.splice(+del.dataset.del, 1); update(); }
@@ -1682,6 +1774,19 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     update();
   });
   $('resetBtn').addEventListener('click', reset);
+  const GKEY = 'radar-guide-off';
+  const setGuide = (off) => { $('guide').hidden = off; $('guideOpen').hidden = !off; try { localStorage.setItem(GKEY, off ? '1' : ''); } catch (e) {} };
+  let gOff = false;
+  try { gOff = localStorage.getItem(GKEY) === '1'; } catch (e) {}
+  setGuide(gOff);
+  $('guideClose').onclick = () => setGuide(true);
+  $('guideOpen').onclick = () => setGuide(false);
+  $('tryBtn').onclick = () => {
+    S.weights.clients = 10;
+    $('w-clients').value = 10;
+    $('verdict').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    setTimeout(update, 350);
+  };
 
   $('runDate').textContent = RUN.date;
   $('foot').innerHTML = `数据方法：${esc(RUN.method)} 代码与数据：meta-agency-radar/（data/runs/${esc(RUN.run_id)}.json）。`;
