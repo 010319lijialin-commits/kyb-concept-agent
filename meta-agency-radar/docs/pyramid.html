@@ -1,0 +1,239 @@
+<title>雷达思路金字塔</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* 布局：阶梯金字塔，越往下越宽、越具体；左半是研究思路，右半是产品思路；最底下是贯穿始终的原则（地基） */
+:root {
+  --bg: #f3f5f8;
+  --sheet: #ffffff;
+  --ink: #152033;
+  --ink-2: #566175;
+  --rule: #d6dce6;
+  --research: #2453b8;
+  --research-soft: #e7edfa;
+  --product: #a35a07;
+  --product-soft: #f8eedf;
+  --apex: #152033;
+  --apex-ink: #f3f5f8;
+  --hl: #f2c94c;
+  --f-display: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141d; --sheet: #171e2a; --ink: #e6eaf2; --ink-2: #9aa4b6; --rule: #2c3647;
+    --research: #8eaef5; --research-soft: #1c2a47; --product: #e3a75c; --product-soft: #36291a;
+    --apex: #e6eaf2; --apex-ink: #0f141d; --hl: #d9b23a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141d; --sheet: #171e2a; --ink: #e6eaf2; --ink-2: #9aa4b6; --rule: #2c3647;
+  --research: #8eaef5; --research-soft: #1c2a47; --product: #e3a75c; --product-soft: #36291a;
+  --apex: #e6eaf2; --apex-ink: #0f141d; --hl: #d9b23a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.6; padding: 32px 16px 48px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; color: var(--ink-2); text-transform: uppercase; }
+h1 { font-family: var(--f-display); font-size: clamp(22px, 3.2vw, 30px); margin: 0; text-wrap: balance; }
+.sub { margin: 0; color: var(--ink-2); max-width: 68ch; }
+.depth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.depth b { font-family: var(--f-mono); font-weight: 500; color: var(--ink); }
+.dots { display: inline-flex; gap: 4px; }
+.dots i { width: 22px; height: 6px; border-radius: 3px; background: var(--ink); }
+.dots i.todo { background: transparent; border: 1px dashed var(--ink-2); }
+
+/* 金字塔 */
+.pyramid { display: grid; gap: 10px; justify-items: center; }
+.tier { width: 100%; border-radius: 4px; padding: 14px 16px 16px; display: grid; gap: 10px; position: relative; min-width: 0; }
+.tier > .lv { font-family: var(--f-mono); font-size: 11px; letter-spacing: .06em; color: var(--ink-2); display: flex; justify-content: space-between; gap: 8px; }
+.t1 { max-width: 40%; background: var(--apex); color: var(--apex-ink); text-align: center; }
+.t1 > .lv { color: color-mix(in srgb, var(--apex-ink) 70%, transparent); justify-content: center; }
+.t1 .q { font-size: 13px; opacity: .8; margin: 0; }
+.t1 .a { font-family: var(--f-display); font-size: 18px; line-height: 1.5; margin: 0; text-wrap: balance; }
+.t2 { max-width: 64%; background: var(--sheet); border: 1px solid var(--rule); }
+.t3 { max-width: 86%; background: var(--sheet); border: 1px solid var(--rule); }
+.t4 { max-width: 100%; border: 1.5px dashed var(--rule); background: transparent; }
+.halves { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.half { min-width: 0; display: grid; gap: 8px; align-content: start; }
+.half > h2 { margin: 0; font-size: 13px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; }
+.half > h2 small { font-weight: 400; color: var(--ink-2); font-size: 12px; }
+.r > h2 { color: var(--research); }
+.p > h2 { color: var(--product); }
+.pillar { border-radius: 4px; padding: 12px 14px; display: grid; gap: 4px; }
+.r .pillar { background: var(--research-soft); }
+.p .pillar { background: var(--product-soft); }
+.pillar b { font-family: var(--f-display); font-size: 16px; }
+.pillar p { margin: 0; font-family: var(--f-display); font-size: 15px; line-height: 1.6; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.node { text-align: left; font: inherit; color: inherit; background: var(--sheet); border: 1px solid var(--rule); border-top: 3px solid currentColor; border-radius: 4px; padding: 8px 10px 10px; display: grid; gap: 3px; align-content: start; cursor: pointer; min-width: 0; transition: background .15s, box-shadow .15s; }
+.r .node { border-top-color: var(--research); }
+.p .node { border-top-color: var(--product); }
+.node .k { font-family: var(--f-mono); font-size: 11px; color: var(--ink-2); }
+.node .t { font-weight: 700; font-size: 14px; }
+.node .d { font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+.node .m { font-size: 11px; color: var(--ink-2); border-top: 1px dotted var(--rule); padding-top: 4px; margin-top: 2px; }
+.node:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.node.on { box-shadow: 0 0 0 2px var(--hl); }
+.node.dim { opacity: .45; }
+.chips { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.chips ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { font-size: 12px; border: 1px dashed var(--rule); border-radius: 999px; padding: 2px 10px; color: var(--ink-2); }
+.chips li.on { border-color: var(--hl); color: var(--ink); }
+.note { font-size: 12px; color: var(--ink-2); margin: 0; }
+
+/* 地基 */
+.base { border-top: 3px double var(--ink); padding-top: 12px; display: grid; gap: 8px; }
+.base ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.base li { display: grid; gap: 2px; }
+.base li b { font-size: 14px; }
+.base li span { font-size: 12px; color: var(--ink-2); }
+
+.log { font-size: 12px; color: var(--ink-2); display: grid; gap: 4px; }
+.log table { border-collapse: collapse; width: 100%; }
+.log td { border-top: 1px solid var(--rule); padding: 6px 8px 6px 0; vertical-align: top; }
+.log td:first-child { font-family: var(--f-mono); white-space: nowrap; color: var(--ink); }
+
+@media (max-width: 820px) {
+  .t1, .t2, .t3 { max-width: 100%; }
+  .halves, .chips { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .base ul { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .node { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">长虹佳华 · Meta 一代竞争力雷达</span>
+    <h1>这个产品是怎么想的</h1>
+    <p class="sub">从上往下读：最上面是一句话结论，往下一层是支撑它的两条主线，再往下是每条主线的关键步骤。越往下越具体。点任意一个步骤，会标出另一条主线里和它对应的部分。</p>
+    <div class="depth" id="depth"></div>
+  </header>
+
+  <div class="pyramid" id="pyramid"></div>
+
+  <section class="base" aria-labelledby="base-h">
+    <span class="eyebrow" id="base-h">地基 · 贯穿每一层的原则</span>
+    <ul id="base"></ul>
+  </section>
+
+  <section class="log" aria-labelledby="log-h">
+    <span class="eyebrow" id="log-h">梳理记录</span>
+    <table><tbody id="log"></tbody></table>
+  </section>
+</div>
+
+<script>
+// 每次往下梳理一层，只改这里的数据。
+const DATA = {
+  apex: {
+    q: '长虹佳华能不能拿下 Meta 一代？怎么拿？',
+    a: '用 Meta 的眼光、同一把尺子，把竞标判断做成有证据、可调整、能持续更新的决策工具',
+  },
+  research: {
+    name: '研究思路', hint: '怎么回答这个问题',
+    pillar: '从 Meta 的偏好和现任一代的缺口出发，按证据判断五家各在什么位置，找出差距，给出分情景的打法。',
+    steps: [
+      { id: 'r1', t: '定标准', d: '先定资金、合规两道门槛；再拆 6 个维度，每个维度 5 个可核对的检查项，并给权重。', src: '来源：Meta 公开信号 + 现任一代画像', links: ['p1'] },
+      { id: 'r2', t: '找证据', d: '每条证据记来源、日期，分 A/B/C 三级。查不到就标查不到，不当作通过。', src: '我方也查，包括不利信息', links: ['p2', 'p6'] },
+      { id: 'r3', t: '判断检查项', d: '每项只判断成立、不成立、查不到，并挂上证据；不直接给维度打分。', src: '', links: ['p3'] },
+      { id: 'r4', t: '算分数和概率', d: '门槛结果 + 已证实分和可能区间；抽样得出排第一、进前 2、被门槛刷掉的概率。', src: '概率只在这 5 家之间比较', links: ['p4', 'p6'] },
+      { id: 'r5', t: '找差距和翻盘点', d: '差距来自哪个维度；补哪一两项证据最快反超；权重怎么变会改变排序。', src: '', links: ['p4'] },
+      { id: 'r6', t: '定打法', d: '按名额数、客户结构、能否结盟切换路演主线；再算一笔值不值得的账。', src: '', links: ['p5'] },
+    ],
+  },
+  product: {
+    name: '产品思路', hint: '怎么让答案可信、可复用',
+    pillar: '采集抽证据，模型做判读，代码做打分，页面给结论、可调可追溯，定期重跑并提醒。',
+    steps: [
+      { id: 'p1', t: '规则配置', d: '门槛、维度、检查项、分值、权重都写在配置里；业务负责人在页面上就能调。', src: '', links: ['r1'] },
+      { id: 'p2', t: '信息获取', d: '程序核对 Meta 官方名单；检索；便宜模型抽事实并核对原文引文；也能人工录入情报。', src: '来源等级由程序判断', links: ['r2'] },
+      { id: 'p3', t: '模型判读', d: '强模型只回答检查项是否成立、依据哪条证据；没有证据自动改成查不到，多次不一致转人工。', src: '', links: ['r3'] },
+      { id: 'p4', t: '代码计算', d: '门槛、分数、概率、敏感性、翻盘条件全部由代码算，不用模型，可以复算。', src: '', links: ['r4', 'r5'] },
+      { id: 'p5', t: '结论呈现', d: '按 CEO 的问题分层：第一屏结论和要拍板的事，点开一层层到证据；调整后标出变化和原因。', src: '', links: ['r6'] },
+      { id: 'p6', t: '持续运行', d: '定时重跑、和上一期对比，推送机会或威胁到飞书群；用标准答案和结果数据校准。', src: '增量重跑控制成本', links: ['r2', 'r4'] },
+    ],
+  },
+  // 第 4 层：下一轮逐项展开的问题（待补）
+  next: {
+    r1: '维度、检查项、权重从哪来', r2: '信源清单和分级规则', r3: '判断规则和防编造', r4: '分数区间和概率模型', r5: '追赶路径怎么算', r6: '情景、路演主线、经济账',
+    p1: '哪些能调、怎么留版本', p2: '采集流水线和成本', p3: '模型分工和校准', p4: '计算引擎和测试', p5: '页面层级和交互', p6: '重跑、对比、提醒规则',
+  },
+  base: [
+    ['模型做判读，代码做打分，人做拍板', '模型只回答检查项是否成立；分数和概率由规则算；规则和最终决定由人定。'],
+    ['同一把尺子量所有人', '长虹佳华按同样的规则打分，也查自己的不利信息，不为我方放宽。'],
+    ['每个数都能追到证据', '查不到不等于通过；只有自述的维度有封顶；结论都能点开到原文链接。'],
+  ],
+  depth: { done: 3, total: 4 },
+  log: [
+    ['v1 · 10-10', '第 1–3 层：一句话结论；研究、产品两条主线；每条主线 6 个关键步骤和对应关系。第 4 层列出待展开的问题。'],
+  ],
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ALL = Object.fromEntries([...DATA.research.steps, ...DATA.product.steps].map((s) => [s.id, s]));
+
+function node(s, i) {
+  const other = s.links.map((id) => ALL[id].t).join('、');
+  return `<button class="node" type="button" data-id="${s.id}" aria-pressed="false">
+    <span class="k">${s.id.startsWith('r') ? '步骤' : '模块'} ${i + 1}</span>
+    <span class="t">${esc(s.t)}</span>
+    <span class="d">${esc(s.d)}</span>
+    ${s.src ? `<span class="d">${esc(s.src)}</span>` : ''}
+    <span class="m">对应${s.id.startsWith('r') ? '产品' : '研究'}：${esc(other)}</span>
+  </button>`;
+}
+function half(cls, h, steps) {
+  return `<div class="half ${cls}"><h2>${esc(h.name)}<small>${esc(h.hint)}</small></h2>${steps}</div>`;
+}
+
+function render() {
+  const { apex, research: R, product: P, next, depth } = DATA;
+  $('depth').innerHTML = `<span>已梳理到</span><b>第 ${depth.done} 层 / 共 ${depth.total} 层</b><span class="dots">${Array.from({ length: depth.total }, (_, i) => `<i class="${i < depth.done ? '' : 'todo'}"></i>`).join('')}</span><span>虚线部分是下一轮要补的</span>`;
+  $('pyramid').innerHTML = `
+    <div class="tier t1"><span class="lv">第 1 层 · 一句话</span><p class="q">${esc(apex.q)}</p><p class="a">${esc(apex.a)}</p></div>
+    <div class="tier t2"><span class="lv"><span>第 2 层 · 两条主线</span></span>
+      <div class="halves">
+        ${half('r', R, `<div class="pillar"><p>${esc(R.pillar)}</p></div>`)}
+        ${half('p', P, `<div class="pillar"><p>${esc(P.pillar)}</p></div>`)}
+      </div></div>
+    <div class="tier t3"><span class="lv"><span>第 3 层 · 关键步骤</span><span>点一个，看对应关系</span></span>
+      <div class="halves">
+        ${half('r', R, `<div class="steps">${R.steps.map(node).join('')}</div>`)}
+        ${half('p', P, `<div class="steps">${P.steps.map(node).join('')}</div>`)}
+      </div></div>
+    <div class="tier t4"><span class="lv"><span>第 4 层 · 每一步具体怎么做（待补）</span></span>
+      <div class="chips">
+        <ul aria-label="研究思路待展开">${R.steps.map((s) => `<li data-id="${s.id}">${esc(s.t)}：${esc(next[s.id])}</li>`).join('')}</ul>
+        <ul aria-label="产品思路待展开">${P.steps.map((s) => `<li data-id="${s.id}">${esc(s.t)}：${esc(next[s.id])}</li>`).join('')}</ul>
+      </div>
+      <p class="note">下一轮梳理时逐项补进来；补完的会变成实线。</p>
+    </div>`;
+  $('base').innerHTML = DATA.base.map(([b, s]) => `<li><b>${esc(b)}</b><span>${esc(s)}</span></li>`).join('');
+  $('log').innerHTML = DATA.log.map(([v, t]) => `<tr><td>${esc(v)}</td><td>${esc(t)}</td></tr>`).join('');
+}
+
+let current = null;
+function select(id) {
+  current = current === id ? null : id;
+  const keep = current ? new Set([current, ...ALL[current].links]) : null;
+  document.querySelectorAll('.node').forEach((n) => {
+    const on = !!keep && keep.has(n.dataset.id);
+    n.classList.toggle('on', on);
+    n.classList.toggle('dim', !!keep && !on);
+    n.setAttribute('aria-pressed', String(n.dataset.id === current));
+  });
+  document.querySelectorAll('.chips li').forEach((li) => li.classList.toggle('on', !!keep && keep.has(li.dataset.id)));
+}
+
+render();
+$('pyramid').addEventListener('click', (e) => {
+  const n = e.target.closest('.node');
+  if (n) select(n.dataset.id);
+});
+</script>
