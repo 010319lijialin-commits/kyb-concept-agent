@@ -1,0 +1,1417 @@
+{
+  "run_id": "2026-10-03-simulated",
+  "date": "2026-10-03",
+  "simulated": true,
+  "method": "模拟基线：复制 2026-10-10 的数据后手工改了 3 个检查项，只用来演示滚动对比和提醒，不代表任何公司的真实变化。",
+  "reference": {
+    "meta_reseller_list_url": "https://metaforbusiness.cn/resellers",
+    "meta_reseller_list_note": "2026-10-10 访问 Meta 海外营销官网代理商页：列出 10 家，没有 HuntMobi（第三方文章称共 11 家）。本次分析的 4 家都不在名单上。"
+  },
+  "companies": [
+    {
+      "id": "changhong",
+      "name": "长虹佳华控股有限公司",
+      "short": "长虹佳华",
+      "role": "self",
+      "entity_note": "港股 3991.HK；出海营销平台 JiaLink（佳Link）。注意：四川长虹佳华信息产品有限责任公司是运营子公司，不是上市主体。",
+      "positioning": "国资上市的 ICT 分销商，资金和合规两道门槛最稳，出海营销业务刚起步",
+      "strategy": "以授信、合规和微软独家授权的 AI 视频广告技术做差异化，补齐客户池和投放数据",
+      "advantage": "五家里唯一两道门槛都确定通过；2025 年营收 438 亿港元，国资控股",
+      "weakness": "公开信息里看不到出海广告客户规模和 Meta 投放记录",
+      "risks": [
+        "「客户增量」几乎没有公开证据，需要内部数据补齐：出海客户数、行业分布、可披露案例",
+        "Google 合作伙伴资质为公司自述，尚未在 Google 官方目录核验",
+        "四川长虹佳华信息产品有限责任公司与上市主体口径不同，对外材料要统一"
+      ],
+      "quals": [
+        {
+          "platform": "Google",
+          "claim": "Google 官方认证合作伙伴（2026-01）",
+          "official": "未在 Google 合作伙伴目录核验",
+          "verdict": "待核",
+          "ev": [
+            "ch_google"
+          ]
+        },
+        {
+          "platform": "Meta",
+          "claim": "未自称 Meta 官方身份；JiaLink 整合 Meta 投放",
+          "official": "不在 Meta 代理商名单",
+          "verdict": "无",
+          "ev": [
+            "ch_meta"
+          ]
+        },
+        {
+          "platform": "微软",
+          "claim": "微软全球独家授权的 AI 视频广告技术",
+          "official": "媒体报道，未见微软官方公告",
+          "verdict": "单源待核",
+          "ev": [
+            "ch_fpt"
+          ]
+        }
+      ],
+      "checks": {
+        "c1": {
+          "s": null,
+          "note": "未找到公开的出海客户数"
+        },
+        "c2": {
+          "s": null,
+          "note": "ICT 分销客户以企业为主；JiaLink 的客户结构未公开"
+        },
+        "c3": {
+          "s": null,
+          "note": "未见产业带布局的公开信息"
+        },
+        "c4": {
+          "s": null,
+          "note": "未见带效果数据的出海营销客户案例"
+        },
+        "c5": {
+          "s": true,
+          "ev": [
+            "ch_about"
+          ],
+          "note": "成立四川长虹云服务公司，定位「中国制造业出海互联平台」"
+        },
+        "o1": {
+          "s": null,
+          "note": "未见 TikTok 代理资质"
+        },
+        "o2": {
+          "s": true,
+          "ev": [
+            "ch_google"
+          ],
+          "note": "公司公告获 Google 官方认证合作伙伴资质"
+        },
+        "o3": {
+          "s": false,
+          "ev": [
+            "ch_meta"
+          ],
+          "note": "不在 Meta 代理商名单，未见 Meta 合作伙伴身份"
+        },
+        "o4": {
+          "s": null,
+          "note": "未披露广告管理规模"
+        },
+        "o5": {
+          "s": null
+        },
+        "t1": {
+          "s": true,
+          "ev": [
+            "ch_fpt"
+          ],
+          "note": "JiaLink 智能营销平台，由长虹佳华、微软与 FPT 共建"
+        },
+        "t2": {
+          "s": null
+        },
+        "t3": {
+          "s": true,
+          "ev": [
+            "ch_fpt",
+            "ch_rmrb"
+          ],
+          "note": "AI 视频广告已在十余家东南亚媒体平台完成集成；服贸会首发实践成果"
+        },
+        "t4": {
+          "s": true,
+          "ev": [
+            "ch_fpt",
+            "ch_google"
+          ],
+          "note": "微软全球独家授权的 AI 视频广告技术；Google 合作伙伴认证"
+        },
+        "t5": {
+          "s": null
+        },
+        "f1": {
+          "s": true,
+          "ev": [
+            "ch_ar"
+          ],
+          "note": "港股 3991.HK"
+        },
+        "f2": {
+          "s": true,
+          "ev": [
+            "ch_ar"
+          ],
+          "note": "2025 年营收 438.26 亿港元，股东应占溢利 4.01 亿港元"
+        },
+        "f3": {
+          "s": null,
+          "note": "分销主业意味着成熟的授信回款体系，但授信规模和坏账率需要内部数据确认"
+        },
+        "f4": {
+          "s": true,
+          "ev": [
+            "ch_ar"
+          ],
+          "note": "上市公司视为满足"
+        },
+        "f5": {
+          "s": true,
+          "ev": [
+            "ch_owner",
+            "ch_about"
+          ],
+          "note": "绵阳市国资委为实际控制人"
+        },
+        "k1": {
+          "s": null,
+          "note": "未接入工商核验；上市公司须披露重大处罚"
+        },
+        "k2": {
+          "s": null
+        },
+        "k3": {
+          "s": null,
+          "note": "Google 合作伙伴为自述，未在官方目录核验"
+        },
+        "k4": {
+          "s": true,
+          "ev": [
+            "ch_ar",
+            "ch_owner"
+          ],
+          "note": "上市公司内控 + 国企合规体系"
+        },
+        "k5": {
+          "s": null,
+          "note": "没有 Meta 广告政策方面的公开记录"
+        },
+        "g1": {
+          "s": true,
+          "ev": [
+            "ch_about",
+            "ch_fpt"
+          ],
+          "note": "2025 年设立新加坡公司；与微软、FPT 共建 JiaLink"
+        },
+        "g2": {
+          "s": true,
+          "ev": [
+            "ch_google",
+            "ch_fpt"
+          ],
+          "note": "2026-01 获 Google 合作伙伴资质；2025-07 与 FPT 签约"
+        },
+        "g3": {
+          "s": null
+        },
+        "g4": {
+          "s": true,
+          "ev": [
+            "ch_about"
+          ],
+          "note": "2021 年设立印尼公司，2025 年设立新加坡公司"
+        },
+        "g5": {
+          "s": null,
+          "note": "未见与 Meta 的公开互动"
+        },
+        "gx1": {
+          "s": false,
+          "ev": [
+            "ch_ar"
+          ]
+        }
+      },
+      "evidence": [
+        {
+          "id": "ch_ar",
+          "claim": "2025 年营收约 438.26 亿港元（+9.6%），股东应占溢利约 4.01 亿港元；ICT 企业产品分销营业额 161.05 亿港元",
+          "url": "https://www.163.com/dy/article/KPCMF07U05198ETO.html",
+          "source": "年度业绩公告（网易号转载）",
+          "type": "listed",
+          "published": "2026-03-31",
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "ch_owner",
+          "claim": "长虹集团、四川长虹等为控股股东组；绵阳市国资委持有长虹集团 90% 股权，为实际控制人",
+          "url": "https://group.changhong.com/tzzgx_275/201609/t20160907_54651.html",
+          "source": "长虹集团投资者关系",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "搜索摘要"
+        },
+        {
+          "id": "ch_about",
+          "claim": "业务规模 450 亿元；3991.HK；长虹控股集团旗下；2021-02 设立印尼公司；2025 年设立新加坡公司；2021-12 成立四川长虹云服务有限公司，打造中国制造业出海互联平台",
+          "url": "https://www.changhongit.com/about/356.html",
+          "source": "长虹佳华官网「走进佳华」",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "ch_google",
+          "claim": "获得 Google 官方认证合作伙伴（Google Partner）资质；整合 Google、YouTube、Meta、TikTok、X、LinkedIn 等平台资源",
+          "url": "https://www.changhongit.com/news/show-1842.html",
+          "source": "长虹佳华官网新闻",
+          "type": "self",
+          "published": "2026-01-04",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "ch_fpt",
+          "claim": "拥有微软全球独家授权的 AI 视频广告技术；JiaLink 由长虹佳华、微软与 FPT 共建；香港、印尼、泰国等十余家东南亚媒体平台已完成集成；与 FPT 自 2025 年 7 月签约合作",
+          "url": "https://hea.china.com/articles/20260428/202604281857580.html",
+          "source": "中华网",
+          "type": "media",
+          "published": "2026-04-28",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "ch_rmrb",
+          "claim": "服贸会上重点展示出海数字化解决方案及数字智能营销服务，首发「人工智能视频广告解决方案」实践成果",
+          "url": "https://news.qq.com/rain/a/20260912A01ZU200",
+          "source": "人民日报（腾讯新闻转载）",
+          "type": "media",
+          "published": "2026-09-12",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "ch_azure",
+          "claim": "分销的微软产品线包括 Azure OpenAI、Azure 机器学习、Azure AI Studio",
+          "url": "https://www.changhongit.com/brand/show-1085.html",
+          "source": "长虹佳华官网微软品牌页",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "ch_meta",
+          "claim": "Meta 官网代理商名单（10 家）未列出长虹佳华",
+          "url": "https://metaforbusiness.cn/resellers",
+          "source": "Meta 海外营销官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        }
+      ],
+      "levers": {
+        "c4": "整理 2–3 个可对外披露、带效果数据的出海营销案例",
+        "c3": "公开产业带或区域客户布局（如西部制造业出海）",
+        "o4": "披露广告管理规模或年消耗",
+        "f3": "披露授信体系：授信额度、账期、坏账率",
+        "k1": "出具工商与司法核验报告",
+        "k3": "在 Google 合作伙伴目录核验并截图",
+        "t5": "公开研发与投放技术团队规模",
+        "g5": "参加或联合举办 Meta 生态活动",
+        "g3": "公布出海营销团队的扩编计划"
+      }
+    },
+    {
+      "id": "shoplazza",
+      "name": "深圳店匠科技有限公司",
+      "short": "店匠",
+      "role": "candidate",
+      "entity_note": "品牌 SHOPLAZZA，独立站 SaaS；中国、加拿大、美国三地总部",
+      "positioning": "独立站 SaaS 平台，65 万+ 商家池 + AI 广告投放工具",
+      "strategy": "讲「为 Meta 带来独立站商家增量 + 自动化投放」，用广告 Agent AdValet 证明技术对接",
+      "advantage": "客户池和技术两项最强，资金门槛通过（软银领投 1.5 亿美元）",
+      "weakness": "不是代投团队；合规维度公开信息为空；独立站卖家政策风险偏高",
+      "risks": [
+        "最近一轮公开融资是 2022 年，之后的盈利情况未知",
+        "「Meta 官方中国区优质合作伙伴」为自述，未在 Meta 目录核验；不在代理商名单",
+        "AI 产品只有单个商家的效果案例，没有平台级使用数据"
+      ],
+      "quals": [
+        {
+          "platform": "Meta",
+          "claim": "Meta 官方中国区优质合作伙伴；受邀 Meta Conversations 2025",
+          "official": "不在代理商名单；合作伙伴目录未核验",
+          "verdict": "生态伙伴，非代理",
+          "ev": [
+            "sl_about",
+            "sl_meta"
+          ]
+        },
+        {
+          "platform": "TikTok",
+          "claim": "TikTok 营销合作伙伴；Agentic Hub 首批合作伙伴",
+          "official": "媒体报道",
+          "verdict": "生态伙伴，非代理",
+          "ev": [
+            "sl_ttmp",
+            "sl_tt"
+          ]
+        }
+      ],
+      "checks": {
+        "c1": {
+          "s": true,
+          "ev": [
+            "sl_about",
+            "sl_sz"
+          ],
+          "note": "65 万+ 商家"
+        },
+        "c2": {
+          "s": true,
+          "ev": [
+            "sl_about"
+          ],
+          "note": "独立站 SaaS 商户，以跨境中小卖家为主"
+        },
+        "c3": {
+          "s": null
+        },
+        "c4": {
+          "s": null,
+          "note": "只有未具名商家的单个案例"
+        },
+        "c5": {
+          "s": true,
+          "ev": [
+            "sl_about",
+            "sl_sz"
+          ],
+          "note": "独立站 SaaS 商户池，是代理商渠道之外的客户来源"
+        },
+        "o1": {
+          "s": false,
+          "ev": [
+            "sl_ttmp"
+          ],
+          "note": "TikTok 营销合作伙伴，不是代理"
+        },
+        "o2": {
+          "s": null
+        },
+        "o3": {
+          "s": true,
+          "ev": [
+            "sl_about",
+            "sl_metaconv"
+          ],
+          "note": "自述 Meta 官方中国区优质合作伙伴，未经目录核验"
+        },
+        "o4": {
+          "s": null
+        },
+        "o5": {
+          "s": null
+        },
+        "t1": {
+          "s": true,
+          "ev": [
+            "sl_about",
+            "sl_sz"
+          ],
+          "note": "SaaS 平台 + AI 原生电商操作系统"
+        },
+        "t2": {
+          "s": true,
+          "ev": [
+            "sl_sz",
+            "sl_cif"
+          ],
+          "note": "AdValet 广告 Agent；Facebook 在线开户、商品同步、多像素追踪"
+        },
+        "t3": {
+          "s": true,
+          "ev": [
+            "sl_sz",
+            "sl_about"
+          ],
+          "note": "（模拟）上一期有平台级使用数据"
+        },
+        "t4": {
+          "s": true,
+          "ev": [
+            "sl_36kr",
+            "sl_about"
+          ],
+          "note": "36 氪 2026 AI 最佳场景渗透案例；2025 AI Cloud 100 China"
+        },
+        "t5": {
+          "s": true,
+          "ev": [
+            "sl_c1"
+          ],
+          "note": "2022 年报道研发团队逾 150 人"
+        },
+        "f1": {
+          "s": false,
+          "ev": [
+            "sl_c1"
+          ],
+          "note": "非上市公司"
+        },
+        "f2": {
+          "s": true,
+          "ev": [
+            "sl_c1",
+            "sl_c1b"
+          ],
+          "note": "2022-01 完成 1.5 亿美元 C1 轮（软银愿景二期领投）"
+        },
+        "f3": {
+          "s": null
+        },
+        "f4": {
+          "s": null,
+          "note": "未查到注册资本"
+        },
+        "f5": {
+          "s": true,
+          "ev": [
+            "sl_c1"
+          ],
+          "note": "软银愿景二期、红杉中国、云九资本"
+        },
+        "k1": {
+          "s": null
+        },
+        "k2": {
+          "s": null
+        },
+        "k3": {
+          "s": null,
+          "note": "Meta 优质合作伙伴为自述，未在目录核验"
+        },
+        "k4": {
+          "s": null
+        },
+        "k5": {
+          "s": null
+        },
+        "g1": {
+          "s": true,
+          "ev": [
+            "sl_sz",
+            "sl_about"
+          ],
+          "note": "2026-04 发布 AI 原生电商操作系统"
+        },
+        "g2": {
+          "s": true,
+          "ev": [
+            "sl_tt",
+            "sl_ttmp"
+          ],
+          "note": "2026-07 成为 TikTok Agentic Hub 首批合作伙伴"
+        },
+        "g3": {
+          "s": null
+        },
+        "g4": {
+          "s": true,
+          "ev": [
+            "sl_about"
+          ],
+          "note": "加拿大、美国设有总部"
+        },
+        "g5": {
+          "s": true,
+          "ev": [
+            "sl_metaconv"
+          ],
+          "note": "受邀参加 Meta Conversations 2025（深圳）"
+        },
+        "gx1": {
+          "s": null
+        }
+      },
+      "evidence": [
+        {
+          "id": "sl_c1",
+          "claim": "2022-01-20 宣布完成 1.5 亿美元 C1 轮，软银愿景二期领投，云九、红杉中国等老股东加码；累计服务商户超 36 万家；研发团队逾 150 人",
+          "url": "https://m.ebrun.com/471366.html",
+          "source": "亿邦动力",
+          "type": "media",
+          "published": "2022-01-20",
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "sl_c1b",
+          "claim": "SHOPLAZZA secures US $150M Series C1 led by Softbank Vision Fund 2",
+          "url": "https://privatecapitaljournal.com/shoplazza-secures-us-150m-series-c1-led-by-softbank-vision-fund-2/",
+          "source": "Private Capital Journal",
+          "type": "media",
+          "published": "2022-01",
+          "accessed": "2026-09-30",
+          "read": "搜索结果标题"
+        },
+        {
+          "id": "sl_about",
+          "claim": "2017 年成立；平台商户突破 65 万家；全球合作伙伴超 2000 家；获 Meta 官方中国区优质合作伙伴认证；自研多模态大模型、AI 建站、LazzaStudio；获 2025 AI Cloud 100 China；中国、加拿大、美国三地总部",
+          "url": "https://www.shoplazza.cn/pages/about-us",
+          "source": "店匠官网",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "sl_sz",
+          "claim": "发布 AI 原生电商操作系统，落地建站、视觉（LazzaStudio）、广告投放（AdValet：受众洞察、广告创意、跨平台投放、实时优化）三个 Agent；服务全球超 65 万商家",
+          "url": "https://www.sznews.com/news/content/2026-04/17/content_32019045.htm",
+          "source": "深圳新闻网",
+          "type": "media",
+          "published": "2026-04-17",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "sl_cif",
+          "claim": "深度整合 Facebook 广告资产，支持在线开户充值、商品自动同步、多像素追踪",
+          "url": "https://www.cifnews.com/service/shoplazza",
+          "source": "雨果网服务商页",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "搜索摘要"
+        },
+        {
+          "id": "sl_metaconv",
+          "claim": "受邀参加 Meta Conversations 2025（深圳，2025-07-03）并分享 WhatsApp 对话营销",
+          "url": "https://www.shoplazza.cn/blog/2025-meta-conversations",
+          "source": "店匠博客",
+          "type": "self",
+          "published": "2025-07",
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "sl_ttmp",
+          "claim": "店匠 Shoplazza 正式成为 TikTok 营销合作伙伴",
+          "url": "https://www.shoplazza.cn/blog/tiktok-partnership-upgrade",
+          "source": "店匠博客",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "搜索结果标题"
+        },
+        {
+          "id": "sl_tt",
+          "claim": "店匠科技成为 TikTok for Business Agentic Hub 首批合作伙伴",
+          "url": "https://mtz.china.com/touzi/2026/0701/245763.html",
+          "source": "中华网",
+          "type": "media",
+          "published": "2026-07-01",
+          "accessed": "2026-10-10",
+          "read": "搜索结果标题"
+        },
+        {
+          "id": "sl_36kr",
+          "claim": "「AI 原生电商操作系统」入选 36 氪 2026 AI 最佳场景渗透案例",
+          "url": "https://mtz.china.com/touzi/2026/0521/235346.html",
+          "source": "中华网",
+          "type": "media",
+          "published": "2026-05-21",
+          "accessed": "2026-10-10",
+          "read": "搜索结果标题"
+        },
+        {
+          "id": "sl_meta",
+          "claim": "Meta 官网代理商名单（10 家）未列出店匠；店匠与 Meta 是生态合作关系，不是代理",
+          "url": "https://metaforbusiness.cn/resellers",
+          "source": "Meta 海外营销官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        }
+      ]
+    },
+    {
+      "id": "lingtok",
+      "name": "青岛领拓跨境电商运营有限公司",
+      "short": "领拓",
+      "role": "candidate",
+      "entity_note": "品牌「领拓国际 / LingTok」，境外主体 LingTok Limited；官网称青岛领拓为国内指定服务商",
+      "positioning": "TikTok 一代出身，北方产业带（青岛、临沂、河南）的效果营销服务商",
+      "strategy": "复制 TikTok 一代的路径，主打华北产业带中小卖家的增量",
+      "advantage": "产业带布局清晰；投保山东首张跨境广告服务综合险，有风控意识",
+      "weakness": "资金门槛有不利线索（转引：注册资本两次减资至 10 万元）；技术无公开证据",
+      "risks": [
+        "转引资料称主体注册资本两次减资（1000 万 → 100 万 → 10 万），未能直接核验工商记录",
+        "转引资料称其为 Google Ads 官方一级代理，公开渠道未检出",
+        "无 Meta 资质和 Meta 投放记录"
+      ],
+      "quals": [
+        {
+          "platform": "TikTok",
+          "claim": "TikTok for Business 一级代理（2022 年起）",
+          "official": "TikTok for Business 官网伙伴页可查",
+          "verdict": "已核实",
+          "ev": [
+            "lt_tt",
+            "lt_amz"
+          ]
+        },
+        {
+          "platform": "Google",
+          "claim": "转引资料称 Google Ads 官方一级代理",
+          "official": "公开渠道未检出",
+          "verdict": "待核",
+          "ev": [
+            "lt_ref"
+          ]
+        },
+        {
+          "platform": "Meta",
+          "claim": "未自称 Meta 代理",
+          "official": "不在 Meta 代理商名单",
+          "verdict": "无",
+          "ev": [
+            "lt_meta"
+          ]
+        }
+      ],
+      "checks": {
+        "c1": {
+          "s": true,
+          "ev": [
+            "lt_site"
+          ],
+          "note": "自述累计服务 1 万+ 企业"
+        },
+        "c2": {
+          "s": null,
+          "note": "自述服务「大中小型企业」，未说明以中小卖家为主"
+        },
+        "c3": {
+          "s": true,
+          "ev": [
+            "lt_site"
+          ],
+          "note": "青岛、临沂、河南等 6 地服务公司"
+        },
+        "c4": {
+          "s": null
+        },
+        "c5": {
+          "s": null
+        },
+        "o1": {
+          "s": true,
+          "ev": [
+            "lt_tt",
+            "lt_ifeng"
+          ],
+          "note": "TikTok 官网伙伴页可查"
+        },
+        "o2": {
+          "s": null,
+          "ev": [
+            "lt_ref"
+          ],
+          "note": "转引资料称 Google Ads 一级代理，未检出"
+        },
+        "o3": {
+          "s": false,
+          "ev": [
+            "lt_meta"
+          ]
+        },
+        "o4": {
+          "s": null,
+          "ev": [
+            "lt_ref"
+          ],
+          "note": "转引资料称服务广告量级 0–3 亿美元，未能核实"
+        },
+        "o5": {
+          "s": null,
+          "note": "（模拟）上一期未找到奖项"
+        },
+        "t1": {
+          "s": null,
+          "note": "官网只有「自研开发与系统集成」表述，未见命名产品"
+        },
+        "t2": {
+          "s": null
+        },
+        "t3": {
+          "s": null
+        },
+        "t4": {
+          "s": null
+        },
+        "t5": {
+          "s": null
+        },
+        "f1": {
+          "s": false,
+          "ev": [
+            "lt_site"
+          ],
+          "note": "民营企业，未上市"
+        },
+        "f2": {
+          "s": null,
+          "note": "未披露营收或融资"
+        },
+        "f3": {
+          "s": true,
+          "ev": [
+            "lt_ins"
+          ],
+          "note": "2024-09 投保中国信保跨境广告服务综合险，有收汇风险保障"
+        },
+        "f4": {
+          "s": null,
+          "adverse": true,
+          "ev": [
+            "lt_ref"
+          ],
+          "note": "转引：注册资本两次减资至 10 万元（待工商核验）"
+        },
+        "f5": {
+          "s": null
+        },
+        "k1": {
+          "s": null
+        },
+        "k2": {
+          "s": null
+        },
+        "k3": {
+          "s": true,
+          "ev": [
+            "lt_tt"
+          ],
+          "note": "TikTok 一级代理自述与官方伙伴页一致"
+        },
+        "k4": {
+          "s": true,
+          "ev": [
+            "lt_ins"
+          ],
+          "note": "跨境广告服务信用保险"
+        },
+        "k5": {
+          "s": null
+        },
+        "g1": {
+          "s": null
+        },
+        "g2": {
+          "s": null
+        },
+        "g3": {
+          "s": null
+        },
+        "g4": {
+          "s": true,
+          "ev": [
+            "lt_site"
+          ],
+          "note": "美国加州办公室"
+        },
+        "g5": {
+          "s": null
+        },
+        "gx1": {
+          "s": null,
+          "adverse": true,
+          "ev": [
+            "lt_ref"
+          ],
+          "note": "转引：注册资本两次减资至 10 万元，若属实则资金门槛不通过"
+        }
+      },
+      "evidence": [
+        {
+          "id": "lt_site",
+          "claim": "运营团队 150 人；累计服务 1 万+ 海内外企业；青岛、深圳、杭州、广州、河南、临沂 6 家服务公司，另有厦门和美国加州办公室；TikTok 一级代理；称以技术驱动、自研开发与系统集成",
+          "url": "http://www.lingtok.net/about.html",
+          "source": "领拓官网",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "lt_tt",
+          "claim": "领拓国际列于 TikTok for Business 官网合作伙伴页",
+          "url": "https://www.tiktokforbusinessoutbound.com/partners/1374",
+          "source": "TikTok for Business 官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "搜索结果标题（原页面 503）"
+        },
+        {
+          "id": "lt_amz",
+          "claim": "2022 年起成为 TikTok for Business 授权代理商；获 2022 年度先锋开拓合作伙伴、2023 年生态赛道优秀代理商等",
+          "url": "https://www.amz123.com/lingtok",
+          "source": "AMZ123 服务商页",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "lt_ins",
+          "claim": "中国信保山东分公司为青岛领拓跨境电商运营有限公司承保山东省首张跨境广告服务综合险保单（2024-09-20 获批）；2022、2023 年获 TikTok 合作伙伴称号",
+          "url": "https://news.goalfore.cn/latest/detail/71094.html",
+          "source": "新闻报道",
+          "type": "media",
+          "published": "2024-09-23",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "lt_ifeng",
+          "claim": "领拓国际集团创始人兼 CEO 张敏军以 TikTok for Business 一级代理身份出席活动",
+          "url": "https://qd.ifeng.com/c/8jjBq2IfILm",
+          "source": "凤凰网青岛",
+          "type": "media",
+          "published": "2025-05-28",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "lt_ref",
+          "claim": "转引：主体 2023-11 成立，注册资本两次减资（1000 万 → 100 万 → 10 万）；称为 Google Ads 官方一级代理、服务广告量级 0–3 亿美元",
+          "url": null,
+          "source": "参考资料转引企查查和公司官网（未能直接核验）",
+          "type": "secondhand",
+          "published": "2026-09",
+          "accessed": "2026-10-10",
+          "read": "转引"
+        },
+        {
+          "id": "lt_meta",
+          "claim": "Meta 官网代理商名单（10 家）未列出领拓",
+          "url": "https://metaforbusiness.cn/resellers",
+          "source": "Meta 海外营销官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        }
+      ]
+    },
+    {
+      "id": "addragon",
+      "name": "厦门龙商网络技术服务有限公司",
+      "short": "龙商",
+      "role": "candidate",
+      "entity_note": "品牌「龙商集团 / AdDragon」；跨境团队在子公司厦门龙赢网络技术服务有限公司",
+      "positioning": "20 年的国内多平台广告代理，福建产业带客户池，正在转出海",
+      "strategy": "把 10 万级国内客户转成出海客户，叠加 AIGC 工具",
+      "advantage": "客户基数大，国内平台关系深，TikTok 授权代理并获年度奖项",
+      "weakness": "出海以 TikTok 为主，无 Meta 资质；资金、合规两道门槛都有不利线索",
+      "risks": [
+        "转引资料称 2024 年注册资本由 1000 万减至 400 万，并有合同纠纷裁判文书，未能直接核验",
+        "跨境业务在子公司龙赢，竞标主体需要确认",
+        "「国内外 AI 大模型中转服务」的合规边界需人工核实"
+      ],
+      "quals": [
+        {
+          "platform": "TikTok",
+          "claim": "TikTok for Business 授权代理（2023 年起）",
+          "official": "TikTok for Business 官网伙伴页可查",
+          "verdict": "已核实",
+          "ev": [
+            "ld_tt"
+          ]
+        },
+        {
+          "platform": "Meta",
+          "claim": "无",
+          "official": "不在 Meta 代理商名单",
+          "verdict": "无",
+          "ev": [
+            "ld_meta"
+          ]
+        }
+      ],
+      "checks": {
+        "c1": {
+          "s": true,
+          "ev": [
+            "ld_site"
+          ],
+          "note": "自述累计服务客户 10 万+"
+        },
+        "c2": {
+          "s": false,
+          "ev": [
+            "ld_site",
+            "ld_amz"
+          ],
+          "note": "客户以国内平台广告主为主；TikTok 侧中小客户 300+"
+        },
+        "c3": {
+          "s": true,
+          "ev": [
+            "ld_site"
+          ],
+          "note": "厦门、泉州、福州等福建产业带"
+        },
+        "c4": {
+          "s": null
+        },
+        "c5": {
+          "s": true,
+          "ev": [
+            "ld_site"
+          ],
+          "note": "10 万级国内平台客户可转化出海"
+        },
+        "o1": {
+          "s": true,
+          "ev": [
+            "ld_tt",
+            "ld_amz"
+          ],
+          "note": "2023 年起 TikTok 授权代理"
+        },
+        "o2": {
+          "s": null
+        },
+        "o3": {
+          "s": false,
+          "ev": [
+            "ld_meta"
+          ]
+        },
+        "o4": {
+          "s": null
+        },
+        "o5": {
+          "s": true,
+          "ev": [
+            "ld_tt"
+          ],
+          "note": "TikTok「2025 年度出海电商营销合作伙伴」"
+        },
+        "t1": {
+          "s": null,
+          "note": "自述有企业级 AIGC 工具，未见产品名"
+        },
+        "t2": {
+          "s": null
+        },
+        "t3": {
+          "s": null
+        },
+        "t4": {
+          "s": null
+        },
+        "t5": {
+          "s": null
+        },
+        "f1": {
+          "s": false,
+          "ev": [
+            "ld_site"
+          ],
+          "note": "民营企业，未上市"
+        },
+        "f2": {
+          "s": null
+        },
+        "f3": {
+          "s": null
+        },
+        "f4": {
+          "s": null,
+          "adverse": true,
+          "ev": [
+            "ld_ref"
+          ],
+          "note": "转引：2024 年注册资本由 1000 万减至 400 万（待工商核验）"
+        },
+        "f5": {
+          "s": null
+        },
+        "k1": {
+          "s": null
+        },
+        "k2": {
+          "s": null,
+          "adverse": true,
+          "ev": [
+            "ld_ref"
+          ],
+          "note": "转引：有合同纠纷裁判文书（待核）"
+        },
+        "k3": {
+          "s": true,
+          "ev": [
+            "ld_tt"
+          ],
+          "note": "TikTok 授权代理自述与官方伙伴页一致"
+        },
+        "k4": {
+          "s": null
+        },
+        "k5": {
+          "s": null
+        },
+        "g1": {
+          "s": true,
+          "ev": [
+            "ld_site"
+          ],
+          "note": "新增 AI 大模型一体化服务业务"
+        },
+        "g2": {
+          "s": true,
+          "ev": [
+            "ld_tt"
+          ],
+          "note": "2023 年获 TikTok 授权"
+        },
+        "g3": {
+          "s": null
+        },
+        "g4": {
+          "s": true,
+          "ev": [
+            "ld_site"
+          ],
+          "note": "香港、东南亚"
+        },
+        "g5": {
+          "s": null
+        },
+        "gx1": {
+          "s": null
+        }
+      },
+      "evidence": [
+        {
+          "id": "ld_site",
+          "claim": "2006 年厦门成立，员工 300 余人；覆盖厦门、泉州、福州、深圳、香港及东南亚；累计服务客户超 10 万家；抖音、小红书、B 站、腾讯、快手、TikTok 等平台核心代理；深耕 AI 大模型一体化服务，有企业级 AIGC 工具和国内外大模型中转服务",
+          "url": "https://xm-ls.com/about.html",
+          "source": "龙商官网",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "ld_tt",
+          "claim": "AdDragon 龙商集团列于 TikTok for Business 官网合作伙伴页：2023 年起为授权代理商，列出「2025 年度出海电商营销合作伙伴」等奖项",
+          "url": "https://www.tiktokforbusinessoutbound.com/partners/10489",
+          "source": "TikTok for Business 官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "搜索摘要（原页面 503）"
+        },
+        {
+          "id": "ld_amz",
+          "claim": "2023 年起成为 TikTok 授权代理商，已助力 300 多个中小企业客户通过 TikTok Shop 出海",
+          "url": "https://www.amz123.com/addragon/introduction",
+          "source": "AMZ123 服务商页",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "ld_87",
+          "claim": "跨境团队隶属龙商集团子公司厦门龙赢网络技术服务有限公司，业务为广告代投代运营、直营电商、TAP",
+          "url": "http://www.xm-ls.com/index.php?g=&m=article&a=index&id=87",
+          "source": "龙商官网文章",
+          "type": "self",
+          "published": "2023-04-20",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "ld_ref",
+          "claim": "转引：2024 年注册资本由 1000 万减至 400 万；有合同纠纷裁判文书；未发现 Meta 代理资质",
+          "url": null,
+          "source": "参考资料转引企查查（未能直接核验）",
+          "type": "secondhand",
+          "published": "2026-09",
+          "accessed": "2026-10-10",
+          "read": "转引"
+        },
+        {
+          "id": "ld_meta",
+          "claim": "Meta 官网代理商名单（10 家）未列出龙商",
+          "url": "https://metaforbusiness.cn/resellers",
+          "source": "Meta 海外营销官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        }
+      ]
+    },
+    {
+      "id": "ecoglobal",
+      "name": "宜客数字科技(深圳)有限公司",
+      "short": "宜客",
+      "role": "candidate",
+      "entity_note": "品牌「宜客跨境」，英文 ECO DIGITAL TECHNOLOGY；2023-08-07 成立",
+      "positioning": "2023 年成立、字节阿里系团队的新锐 TikTok 一代，品牌客户 + 东南亚节点",
+      "strategy": "讲「TikTok 一代快速复制」+ 营销到履约的全链路服务",
+      "advantage": "成长快：成立 3 年内拿到 TikTok 授权，有东南亚节点",
+      "weakness": "注册资本 300 万；自称 Meta 授权代理与官网名单不符；规模口径冲突",
+      "risks": [
+        "招聘页标注 20 人以下，转引资料称 400+ 人；自述服务 22000+ 品牌，口径需核实（可用工商年报社保参保人数核验）",
+        "自称 Meta、Google 官方授权代理，Meta 名单上没有"
+      ],
+      "quals": [
+        {
+          "platform": "TikTok",
+          "claim": "TikTok for Business 官方授权一级代理",
+          "official": "TikTok for Business 官网伙伴页可查",
+          "verdict": "已核实",
+          "ev": [
+            "yk_tt"
+          ]
+        },
+        {
+          "platform": "Meta",
+          "claim": "Meta 官方授权代理（自述）",
+          "official": "不在 Meta 代理商名单",
+          "verdict": "不符",
+          "ev": [
+            "yk_self",
+            "yk_meta"
+          ]
+        },
+        {
+          "platform": "Google",
+          "claim": "Google 官方授权代理（自述）",
+          "official": "未核验",
+          "verdict": "待核",
+          "ev": [
+            "yk_self"
+          ]
+        }
+      ],
+      "checks": {
+        "c1": {
+          "s": true,
+          "ev": [
+            "yk_self"
+          ],
+          "note": "自述服务 22000+ 品牌（与人员规模口径冲突）"
+        },
+        "c2": {
+          "s": false,
+          "ev": [
+            "yk_self"
+          ],
+          "note": "以小米、美的等头部品牌为主"
+        },
+        "c3": {
+          "s": true,
+          "ev": [
+            "yk_self",
+            "yk_ssqz"
+          ],
+          "note": "上海、广州、长沙、厦门分公司；华南华东"
+        },
+        "c4": {
+          "s": null,
+          "ev": [
+            "yk_ref"
+          ],
+          "note": "转引资料称有 ROAS 提升案例，未能核实"
+        },
+        "c5": {
+          "s": null
+        },
+        "o1": {
+          "s": true,
+          "ev": [
+            "yk_tt",
+            "yk_ssqz"
+          ]
+        },
+        "o2": {
+          "s": null,
+          "note": "自述 Google 授权代理，未核验"
+        },
+        "o3": {
+          "s": false,
+          "ev": [
+            "yk_meta"
+          ],
+          "note": "自述 Meta 授权代理，但不在 Meta 名单"
+        },
+        "o4": {
+          "s": null,
+          "ev": [
+            "yk_ref"
+          ],
+          "note": "转引资料称年广告管理规模 3000 万美元以上，未能核实"
+        },
+        "o5": {
+          "s": null
+        },
+        "t1": {
+          "s": null
+        },
+        "t2": {
+          "s": null
+        },
+        "t3": {
+          "s": null
+        },
+        "t4": {
+          "s": null
+        },
+        "t5": {
+          "s": null
+        },
+        "f1": {
+          "s": false,
+          "ev": [
+            "yk_reg"
+          ],
+          "note": "未上市"
+        },
+        "f2": {
+          "s": null
+        },
+        "f3": {
+          "s": null
+        },
+        "f4": {
+          "s": false,
+          "ev": [
+            "yk_reg"
+          ],
+          "note": "注册资本 300 万元，低于 1000 万"
+        },
+        "f5": {
+          "s": null
+        },
+        "k1": {
+          "s": null
+        },
+        "k2": {
+          "s": null
+        },
+        "k3": {
+          "s": null,
+          "note": "（模拟）上一期尚未核对 Meta 名单"
+        },
+        "k4": {
+          "s": null
+        },
+        "k5": {
+          "s": null
+        },
+        "g1": {
+          "s": null
+        },
+        "g2": {
+          "s": true,
+          "ev": [
+            "yk_tt"
+          ],
+          "note": "成立 3 年内获 TikTok 授权"
+        },
+        "g3": {
+          "s": true,
+          "ev": [
+            "yk_ssqz"
+          ],
+          "note": "2026 校园招聘，拓展长三角"
+        },
+        "g4": {
+          "s": true,
+          "ev": [
+            "yk_self"
+          ],
+          "note": "印尼、马来西亚服务节点"
+        },
+        "g5": {
+          "s": null
+        },
+        "gx1": {
+          "s": false,
+          "ev": [
+            "yk_reg"
+          ]
+        }
+      },
+      "evidence": [
+        {
+          "id": "yk_reg",
+          "claim": "工商信息：成立于 2023-08-07，注册资本 300 万元人民币，有限责任公司（港澳台投资、非独资）",
+          "url": "https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm",
+          "source": "智联招聘企业页（工商信息）",
+          "type": "registry_mirror",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "yk_self",
+          "claim": "自述：TikTok For Business 官方授权一级代理、TikTok Shop 核心生态伙伴，Google 与 Meta 官方授权代理；服务小米、美的等 22000+ 品牌；上海、广州、长沙、厦门分公司，印尼、马来西亚服务节点；人员规模标注 20 人以下",
+          "url": "https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm",
+          "source": "智联招聘企业页（公司自述）",
+          "type": "self",
+          "published": null,
+          "accessed": "2026-09-30",
+          "read": "原文"
+        },
+        {
+          "id": "yk_ssqz",
+          "claim": "TikTok 官方授权一级代理，总部深圳，业务覆盖华南与华东核心城市，正在拓展长三角；合作客户年电商销售额突破 100 亿（2026 校园招聘）",
+          "url": "https://www.shushuqiuzhi.com/article/76445",
+          "source": "鼠鼠求职（校招信息）",
+          "type": "self",
+          "published": "2026",
+          "accessed": "2026-10-10",
+          "read": "原文"
+        },
+        {
+          "id": "yk_tt",
+          "claim": "宜客数字科技（ECO DIGITAL TECHNOLOGY）列于 TikTok for Business 官网合作伙伴页",
+          "url": "https://www.tiktokforbusinessoutbound.com/partners/20659",
+          "source": "TikTok for Business 官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "搜索结果标题（原页面 503）"
+        },
+        {
+          "id": "yk_ref",
+          "claim": "转引：团队 400+ 人；年广告管理规模 3000 万美元以上；北美女装品牌 ROAS 提升 180%+ 等案例",
+          "url": null,
+          "source": "参考资料转引其官网与招聘材料（未能直接核验）",
+          "type": "secondhand",
+          "published": "2026-09",
+          "accessed": "2026-10-10",
+          "read": "转引"
+        },
+        {
+          "id": "yk_meta",
+          "claim": "Meta 官网代理商名单（10 家）未列出宜客",
+          "url": "https://metaforbusiness.cn/resellers",
+          "source": "Meta 海外营销官网",
+          "type": "official",
+          "published": null,
+          "accessed": "2026-10-10",
+          "read": "原文"
+        }
+      ]
+    }
+  ]
+}

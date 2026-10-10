@@ -1,40 +1,85 @@
-// 第 3 步：强模型按评分细则给每个维度打分。只能引用已核对过的证据，没证据的维度强制为未知。
+// 第 3 步：强模型判断检查项，不打分。
+// 模型只回答「这个检查项成立吗、依据哪几条证据」；分数、门槛、排名由 lib/score.js 按规则计算。
+// 可选多次运行（JUDGE_RUNS=3）：各次判断不一致的检查项改为「查不到」并标记人工复核。
 import { chatJSON } from './llm.js';
 
-function judgeSystem(framework) {
-  const rubric = framework.dimensions
-    .map((d) => `- ${d.id}（${d.name}）：${Object.entries(d.rubric).map(([k, v]) => `${k}=${v}`).join('；')}`)
-    .join('\n');
-  return `你站在 Meta 大中华区渠道团队的角度，评估一家公司做 Meta 一级代理（reseller）的竞争力。
-${framework.perspective}
-评分细则（0-5，可用 .5）：
-${rubric}
-规则：
-1. 每个维度只能依据给出的证据 id 打分，rationale 里写清依据。
-2. 某维度没有相关证据，score 必须是 null，不能凭常识猜。
-3. 自述类证据互相矛盾时（如客户数与人员规模不匹配），降低置信度并在 risks 里写明。
-输出 JSON：
-{"dims":{"finance":{"score":数字或null,"confidence":"高|中|低","rationale":"...","evidence":["id"]},...六个维度},
- "positioning":"一句话定位","strategy":"它竞标 Meta 一代最可能打的牌","risks":["..."]}`;
+function allChecks(fw) {
+  return [...fw.dimensions.flatMap((d) => d.checks.map((c) => ({ ...c, dim: d.name }))), ...fw.gate_checks.map((g) => ({ ...g, dim: '门槛' }))];
 }
 
-export async function judgeCompany(company, evidence, framework) {
-  const ev = evidence.map((e) => `[${e.id}] (${e.dim}, ${e.confidence}, ${e.published || '日期未知'}) ${e.claim}`).join('\n');
-  const out = await chatJSON('strong', judgeSystem(framework), `公司：${company.name}\n证据：\n${ev || '（无）'}`);
+export function judgeSystem(fw) {
+  const list = allChecks(fw).map((c) => `- ${c.id}（${c.dim}）：${c.text}`).join('\n');
+  return `你在帮 Meta 大中华区渠道团队核查一家候选代理商。对下列每个检查项判断是否成立。
+${list}
+规则：
+1. 只能依据给出的证据 id，不能用常识补充。
+2. 有证据支持成立 → s=true；有证据表明不成立 → s=false；没有相关证据 → s=null（这是正常结果，不要猜）。
+3. 证据只证明邻近能力时不能算成立（例：拿到平台资质证明的是运营能力，不等于有自研技术）。
+4. 只有不利传闻、没有可靠来源时，s=null 并设 adverse=true。
+5. 每个 s=true 或 s=false 的检查项必须列出证据 id。
+输出 JSON：
+{"checks":{"c1":{"s":true|false|null,"ev":["证据id"],"note":"一句话依据","adverse":false}, ...},
+ "positioning":"一句话定位","strategy":"它竞标 Meta 一代最可能打的牌","advantage":"最大优势","weakness":"致命弱点","risks":["待核实事项"]}`;
+}
+
+// 清洗模型输出：未知检查项丢弃；引用了不存在的证据就去掉；没有有效证据的 true/false 改成 null。
+export function sanitizeChecks(raw, evidence, fw) {
   const ids = new Set(evidence.map((e) => e.id));
-  const dims = {};
-  for (const d of framework.dimensions) {
-    const r = out.dims?.[d.id] || {};
-    const cited = (r.evidence || []).filter((id) => ids.has(id));
-    let score = typeof r.score === 'number' ? Math.max(0, Math.min(5, r.score)) : null;
-    // 闸门：引用了不存在的证据或没有引用，一律按未知处理
-    if (!cited.length) score = null;
-    dims[d.id] = {
-      score,
-      confidence: score == null ? '低' : r.confidence || '低',
-      rationale: score == null ? '没有可引用的公开证据，标为未知。' : r.rationale || '',
-      evidence: cited,
-    };
+  const valid = new Set(allChecks(fw).map((c) => c.id));
+  const out = {};
+  let dropped = 0;
+  for (const id of valid) {
+    const a = raw?.[id] || {};
+    const ev = (Array.isArray(a.ev) ? a.ev : []).filter((x) => ids.has(x));
+    let s = a.s === true || a.s === false ? a.s : null;
+    if (s !== null && !ev.length) {
+      s = null;
+      dropped += 1;
+    }
+    out[id] = { s, ev, note: String(a.note || '').slice(0, 200), ...(a.adverse ? { adverse: true } : {}) };
   }
-  return { dims, positioning: out.positioning || '', strategy: out.strategy || '', risks: out.risks || [] };
+  return { checks: out, dropped };
+}
+
+// 多次运行取一致：任意两次结论不同的检查项改为 null，并记下来交给人工复核。
+export function mergeRuns(runs) {
+  const ids = Object.keys(runs[0] || {});
+  const merged = {};
+  const disputed = [];
+  for (const id of ids) {
+    const states = runs.map((r) => r[id]?.s ?? null);
+    if (states.every((s) => s === states[0])) {
+      merged[id] = runs[0][id];
+    } else {
+      merged[id] = { s: null, ev: [], note: `模型 ${runs.length} 次判断不一致（${states.map(String).join(' / ')}），转人工复核` };
+      disputed.push(id);
+    }
+  }
+  return { checks: merged, disputed };
+}
+
+export async function judgeCompany(company, evidence, fw, { runs = Number(process.env.JUDGE_RUNS || 1) } = {}) {
+  const ev = evidence.map((e) => `[${e.id}] (${e.type}, ${e.published || '日期未知'}) ${e.claim}`).join('\n');
+  const user = `公司：${company.name}\n证据：\n${ev || '（无）'}`;
+  const results = [];
+  let meta = {};
+  let dropped = 0;
+  for (let i = 0; i < Math.max(1, runs); i++) {
+    const out = await chatJSON('strong', judgeSystem(fw), user);
+    const clean = sanitizeChecks(out.checks, evidence, fw);
+    dropped += clean.dropped;
+    results.push(clean.checks);
+    if (i === 0) meta = out;
+  }
+  const { checks, disputed } = results.length > 1 ? mergeRuns(results) : { checks: results[0], disputed: [] };
+  return {
+    checks,
+    review: disputed,
+    droppedClaims: dropped,
+    positioning: meta.positioning || '',
+    strategy: meta.strategy || '',
+    advantage: meta.advantage || '',
+    weakness: meta.weakness || '',
+    risks: Array.isArray(meta.risks) ? meta.risks : [],
+  };
 }

@@ -1,182 +1,563 @@
 {
-  "version": "v1-2026-09-30",
-  "scale": "0-5 分；null = 未知（没有可引用的公开证据，不打分）",
-  "perspective": "站在 Meta 大中华区渠道团队的位置：选一家新的一级代理（reseller），它要替 Meta 垫资授信、带来增量客户、守住广告政策。",
-  "meta_signals": [
-    {
-      "signal": "代理商替广告主垫资、承担坏账",
-      "why": "reseller 模式下代理商给广告主授信、按月回款给 Meta，坏账和延迟回款首先是代理商的，其次才是 Meta 的。所以资金和风控是准入的地板。",
-      "source": "https://www.wearesellers.com/question/79358",
-      "dims": [
-        "finance"
-      ]
-    },
-    {
-      "signal": "奖项反复奖励长尾/高潜客户增长、客户激活、毕业升级",
-      "why": "Meta 2024/2025 年度代理商奖项里有「长尾客户高潜客户增长」「客户激活」「高潜客户毕业升级」等多项，说明 Meta 要的是新增的中小客户，而不是存量大客户换个代理。",
-      "source": "https://yinolink.com/view/516",
-      "dims": [
-        "clients",
-        "scale"
-      ]
-    },
-    {
-      "signal": "广告政策表现、绿色通道质量单独设奖",
-      "why": "「最佳政策表现」「绿色通道质量」「广告政策表现卓越奖」说明 Meta 按代理商的违规率、申诉质量考核。",
-      "source": "https://yinolink.com/view/516",
-      "dims": [
-        "compliance"
-      ]
-    },
-    {
-      "signal": "ALM / RCMP 自动化、重点产品推广",
-      "why": "2026 代理商峰会讲「器术势道」，第一步就是「利用 AI 与自动化提升效率的器」，奖项里有 ALM 规模化客户激活、RCMP 自动化测试伙伴。技术能力要落在推动 Meta 自己的 AI 投放产品上。",
-      "source": "https://yinolink.com/view/516",
-      "dims": [
-        "tech"
-      ]
-    },
-    {
-      "signal": "本地办公、本地语言售前售后团队",
-      "why": "Meta 对 reseller 的通用要求：有实体办公室、受过培训的本地售前售后人员，各地点单独达标。",
-      "source": "https://www.facebook.com/business/marketing-partners/become-a-partner/fmp-product-policies",
-      "dims": [
-        "clients",
-        "scale"
-      ]
+  "version": "v2-2026-10-10",
+  "perspective": "站在 Meta 大中华区渠道团队的位置：在有限的新名额里，选能带来现有一代带不来的客户、扛得住垫资和坏账、守得住广告政策的伙伴。",
+  "scoring": {
+    "scale": "每个维度 0–5 分，由检查项加总；总分 = 加权后换算到 100 分。",
+    "principle": "模型和人只判断检查项是否成立、并挂上证据；分数由代码按规则算。查不到的检查项不给分，但计入可能区间。",
+    "cap_without_strong_evidence": 3.5,
+    "cap_rule": "一个维度里没有任何 A 级或双源印证的证据时，已证实分最高 3.5。",
+    "unknown_modes": {
+      "conservative": "保守：只算已证实的检查项（默认）",
+      "neutral": "中性：查不到的检查项按一半计",
+      "optimistic": "乐观：查不到的检查项全按成立计"
     }
-  ],
+  },
+  "evidence_grades": {
+    "types": {
+      "registry": {
+        "grade": "A",
+        "label": "工商/公示系统"
+      },
+      "listed": {
+        "grade": "A",
+        "label": "上市公司公告/年报"
+      },
+      "official": {
+        "grade": "A",
+        "label": "平台官方目录/官网"
+      },
+      "registry_mirror": {
+        "grade": "B",
+        "label": "第三方平台展示的工商信息"
+      },
+      "media": {
+        "grade": "B",
+        "label": "媒体报道"
+      },
+      "self": {
+        "grade": "B",
+        "label": "公司自述（官网、招聘、自媒体）"
+      },
+      "secondhand": {
+        "grade": "C",
+        "label": "转引（他人报告、竞品博客）"
+      },
+      "internal": {
+        "grade": "B",
+        "label": "内部情报（人工录入）"
+      }
+    },
+    "rules": [
+      "A 级可直接采信。",
+      "B 级可以计分，但一个维度只有 B 级证据时最高 3.5 分；同一检查项有两个不同来源的 B 级证据（双源印证）视同 A 级。",
+      "C 级只作线索：不计分、不定门槛，只把门槛标为「待定（有不利线索）」并派人核实。"
+    ]
+  },
+  "gates": {
+    "why": "加权求和会让一项很强去抵消一项致命的弱。资金和合规不过关，Meta 不会签，所以先过门槛，再比分数。",
+    "states": {
+      "pass": {
+        "label": "通过",
+        "p": 1
+      },
+      "pending": {
+        "label": "待定",
+        "p": 0.85,
+        "why": "查不到，但没有不利线索；多数公司没有重大问题，按 85% 通过估计"
+      },
+      "borderline": {
+        "label": "临界",
+        "p": 0.5
+      },
+      "pending_adverse": {
+        "label": "待定·有不利线索",
+        "p": 0.35
+      },
+      "fail": {
+        "label": "不通过",
+        "p": 0
+      }
+    },
+    "list": [
+      {
+        "id": "gate_fin",
+        "name": "资金门槛",
+        "question": "扛不扛得住垫资和坏账？",
+        "rules": [
+          "注册资本低于 100 万元或连续减资（gx1 成立）→ 不通过",
+          "上市（f1）或公开营收/大额融资（f2）→ 通过；近期有减资则降为临界",
+          "资本实力不足（f4 不成立：注册资本低于 1000 万或近 24 个月减资）→ 临界",
+          "资本实力达标（f4 成立）→ 通过",
+          "查不到但有不利线索 → 待定·有不利线索；否则 → 待定"
+        ],
+        "threshold_note": "100 万 / 1000 万是默认值：按新代理首年月消耗 50 万美元、账期 30 天估算，可动用资金需约 360 万元，注册资本只是代理指标。V1.5 用现任一代的分布校准。"
+      },
+      {
+        "id": "gate_comp",
+        "name": "合规门槛",
+        "question": "会不会给 Meta 带来政策或声誉风险？",
+        "rules": [
+          "有失信、经营异常或重大处罚（k1 不成立）→ 不通过",
+          "有未结重大诉讼（k2 不成立）或对外资质表述与官方目录不符（k3 不成立）→ 临界",
+          "工商核验无问题（k1 成立）或为上市公司（持续披露重大处罚）→ 通过",
+          "查不到但有不利线索 → 待定·有不利线索；否则 → 待定"
+        ]
+      }
+    ]
+  },
   "dimensions": [
     {
-      "id": "finance",
-      "name": "资金实力与信用风控",
-      "short": "资金风控",
-      "weight": 25,
-      "why_weight": "reseller 的本质是授信生意，Meta 选代理商第一关看的是会不会坏账。权重最高。",
-      "rubric": {
-        "5": "上市或国资背景，公开财报显示大体量营收/利润，有成熟的授信和回款管理",
-        "4": "大额机构融资或稳定盈利证据，资金可支撑垫资",
-        "3": "有一定规模但缺财务披露",
-        "2": "小规模，注册资本或人员体量有限",
-        "1": "新设或体量很小，垫资能力存疑",
-        "null": "找不到任何财务或融资证据"
-      },
-      "query_templates": [
-        "{name} 融资 营收 注册资本",
-        "{name} 财报 利润"
-      ]
-    },
-    {
-      "id": "scale",
-      "name": "投流规模与增长",
-      "short": "投流规模",
-      "weight": 20,
-      "why_weight": "Meta 看代理商能带来多少新增消耗。没有公开消耗数据时，用其他平台一代资质、平台奖项、服务客户数作为代理指标。",
-      "rubric": {
-        "5": "公开的大额年消耗，或多家海外平台一级代理且拿过规模类奖项",
-        "4": "海外平台一级代理 + 增长类奖项",
-        "3": "海外平台授权代理，有平台奖项或大客户基数",
-        "2": "海外投放业务刚起步或以国内为主",
-        "1": "几乎没有海外投放业务",
-        "null": "无证据"
-      },
-      "query_templates": [
-        "{name} TikTok 一级代理 奖项",
-        "{name} Meta Google 代理 广告消耗"
-      ]
-    },
-    {
       "id": "clients",
-      "name": "客户结构（行业/产业带/中小客户）",
-      "short": "客户结构",
-      "weight": 15,
-      "why_weight": "Meta 的奖项集中在长尾和高潜客户增长，能触达 Meta 还没覆盖的中小卖家和产业带，就是 Meta 想要的增量。",
-      "rubric": {
-        "5": "海量中小跨境客户池，且有 Meta 覆盖薄弱的产业带/行业",
-        "4": "大量中小客户或明确的产业带布局",
-        "3": "有一定客户基数，行业较集中",
-        "2": "以大客户或国内客户为主，跨境中小客户少",
-        "1": "客户基础薄弱",
-        "null": "无证据"
-      },
-      "query_templates": [
-        "{name} 服务客户 产业带 中小卖家",
-        "{name} 分公司 办公室"
+      "name": "客户增量",
+      "short": "客户增量",
+      "weight": 25,
+      "why_weight": "Meta 招新代理，要的是现有一代带不来的新客户；年度奖项也反复奖励长尾和高潜客户增长。权重最高。",
+      "signals": [
+        "s_tail",
+        "s_new"
+      ],
+      "checks": [
+        {
+          "id": "c1",
+          "text": "出海客户规模：累计服务 1 万家以上（公开口径）",
+          "points": 1
+        },
+        {
+          "id": "c2",
+          "text": "以跨境中小卖家为主要客群",
+          "points": 1
+        },
+        {
+          "id": "c3",
+          "text": "有明确的产业带或区域客户布局",
+          "points": 1
+        },
+        {
+          "id": "c4",
+          "text": "有可核实的客户案例（品牌或行业 + 效果数据）",
+          "points": 1
+        },
+        {
+          "id": "c5",
+          "text": "有与现有一代错位的客户来源（如 SaaS 商户池、国内平台客户转化、制造业出海）",
+          "points": 1
+        }
+      ],
+      "queries": [
+        "{name} 服务客户 产业带 中小卖家 案例"
+      ]
+    },
+    {
+      "id": "ops",
+      "name": "投放运营与平台资质",
+      "short": "投放资质",
+      "weight": 20,
+      "why_weight": "能不能把客户的钱稳定地投出去。没有公开消耗数据时，用其他平台的官方代理资质和奖项作代理指标。",
+      "signals": [
+        "s_new"
+      ],
+      "checks": [
+        {
+          "id": "o1",
+          "text": "TikTok for Business 授权代理（官方伙伴页可查）",
+          "points": 1
+        },
+        {
+          "id": "o2",
+          "text": "Google 官方代理或认证合作伙伴",
+          "points": 1
+        },
+        {
+          "id": "o3",
+          "text": "有 Meta 官方合作身份（代理商名单或合作伙伴目录）",
+          "points": 1
+        },
+        {
+          "id": "o4",
+          "text": "公开的广告管理规模或消耗数据",
+          "points": 1
+        },
+        {
+          "id": "o5",
+          "text": "近 3 年获得广告平台官方奖项",
+          "points": 1
+        }
+      ],
+      "queries": [
+        "{name} TikTok Google Meta 代理 奖项 广告消耗"
       ]
     },
     {
       "id": "tech",
-      "name": "技术与 AI 能力",
+      "name": "技术与 AI",
       "short": "技术 AI",
       "weight": 15,
-      "why_weight": "Meta 在推 Advantage+ 等自动化产品，代理商需要自研平台、API 对接、AIGC 素材来放大自动化投放。",
-      "rubric": {
-        "5": "自研 SaaS/平台 + API/像素/CAPI 深度对接 + 规模化 AIGC 产品",
-        "4": "有命名的自研平台或 AI 产品，且有外部认可",
-        "3": "有自研工具，但公开细节少",
-        "2": "只有宣传性表述",
-        "1": "无技术投入",
-        "null": "无证据"
-      },
-      "query_templates": [
-        "{name} 自研 平台 AI AIGC 素材",
-        "{name} API 系统"
+      "why_weight": "Meta 2026 代理商峰会把「用 AI 与自动化提效」放在第一步，奖项有自动化投放类。",
+      "signals": [
+        "s_ai"
+      ],
+      "checks": [
+        {
+          "id": "t1",
+          "text": "有命名的自研平台或 SaaS",
+          "points": 1.5
+        },
+        {
+          "id": "t2",
+          "text": "与广告平台有 API、像素或一键投放类对接",
+          "points": 1
+        },
+        {
+          "id": "t3",
+          "text": "AI 产品有落地数据（接入平台数、使用量等）",
+          "points": 1
+        },
+        {
+          "id": "t4",
+          "text": "有第三方认可（技术奖项、平台认证、技术授权）",
+          "points": 0.5
+        },
+        {
+          "id": "t5",
+          "text": "公开的研发团队在 100 人以上",
+          "points": 1
+        }
+      ],
+      "queries": [
+        "{name} 自研 平台 AI 广告 投放 工具"
+      ]
+    },
+    {
+      "id": "finance",
+      "name": "财务与授信",
+      "short": "财务授信",
+      "weight": 15,
+      "why_weight": "过了资金门槛之后，看能给客户多大的授信。返点缩水后，授信账期是代理商新的利润来源。",
+      "signals": [
+        "s_credit",
+        "s_rebate"
+      ],
+      "checks": [
+        {
+          "id": "f1",
+          "text": "上市公司或其子公司",
+          "points": 1
+        },
+        {
+          "id": "f2",
+          "text": "公开营收利润，或近 5 年单轮机构融资 1000 万美元以上",
+          "points": 1.5
+        },
+        {
+          "id": "f3",
+          "text": "有授信或应收管理的成熟体系（分销、供应链金融、信用保险等）",
+          "points": 1
+        },
+        {
+          "id": "f4",
+          "text": "资本实力：注册资本 1000 万以上且近 24 个月无减资（上市公司视为满足）",
+          "points": 1
+        },
+        {
+          "id": "f5",
+          "text": "国资控股或头部机构背书",
+          "points": 0.5
+        }
+      ],
+      "queries": [
+        "{name} 融资 营收 注册资本 减资"
       ]
     },
     {
       "id": "compliance",
-      "name": "合规与账户稳定性",
-      "short": "合规稳定",
+      "name": "合规与风控",
+      "short": "合规风控",
       "weight": 15,
-      "why_weight": "广告政策表现单独设奖，违规高的代理商会拖累 Meta 的平台安全。公开信息少，这一维最依赖人工校准。",
-      "rubric": {
-        "5": "有 Meta 政策类奖项或公开的低违规记录，内控健全",
-        "4": "上市/国资内控，或获 Meta 官方合作认证",
-        "3": "未见负面，有一定合规体系表述",
-        "2": "有公开表述与事实不符、或客户群政策风险高",
-        "1": "有公开的违规、处罚或封户纠纷",
-        "null": "无证据（未见负面 ≠ 合规好）"
-      },
-      "query_templates": [
-        "{name} 封户 投诉 处罚",
-        "{name} 广告政策 合规"
+      "why_weight": "Meta 单设「广告政策表现」奖项，行业报道称返点与封户率挂钩。公开信息最少的一维，最依赖人工补证据。",
+      "signals": [
+        "s_policy",
+        "s_rebate"
+      ],
+      "checks": [
+        {
+          "id": "k1",
+          "text": "工商可查：无失信、经营异常、重大处罚",
+          "points": 1.5
+        },
+        {
+          "id": "k2",
+          "text": "无未结重大诉讼",
+          "points": 0.5
+        },
+        {
+          "id": "k3",
+          "text": "对外宣称的平台资质与官方目录一致",
+          "points": 1
+        },
+        {
+          "id": "k4",
+          "text": "有体系化的风控能力证明（上市内控、国企合规、信用保险等）",
+          "points": 1
+        },
+        {
+          "id": "k5",
+          "text": "有广告政策合规的实操记录（政策类奖项、低违规证明）",
+          "points": 1
+        }
+      ],
+      "queries": [
+        "{name} 处罚 诉讼 失信 经营异常"
       ]
     },
     {
-      "id": "background",
-      "name": "企业背景（国企/上市/股东）",
-      "short": "企业背景",
+      "id": "growth",
+      "name": "增长计划与投入",
+      "short": "增长投入",
       "weight": 10,
-      "why_weight": "背景影响持续经营和违约兜底，但和资金风控部分重叠，所以权重最低，避免重复计分。",
-      "rubric": {
-        "5": "国资控股且上市",
-        "4": "上市公司或其子公司",
-        "3": "头部机构投资的大型非上市公司",
-        "2": "有一定历史的民营企业",
-        "1": "新设或小型民营企业",
-        "null": "无证据"
-      },
-      "query_templates": [
-        "{name} 股东 实际控制人 上市"
+      "why_weight": "Meta 强调长期合作而非赚快钱。公开信息只能看到投入信号，真正的增长计划要在路演里讲。",
+      "signals": [
+        "s_long"
+      ],
+      "checks": [
+        {
+          "id": "g1",
+          "text": "有公开的出海或 AI 战略投入（新设公司、新业务线、新产品）",
+          "points": 1
+        },
+        {
+          "id": "g2",
+          "text": "近 3 年新增平台官方资质或合作",
+          "points": 1
+        },
+        {
+          "id": "g3",
+          "text": "有团队扩张或招聘信号",
+          "points": 1
+        },
+        {
+          "id": "g4",
+          "text": "有海外本地团队或服务节点",
+          "points": 1
+        },
+        {
+          "id": "g5",
+          "text": "与 Meta 生态有公开互动（受邀活动、联合活动）",
+          "points": 1
+        }
+      ],
+      "queries": [
+        "{name} 海外 公司 新业务 招聘 扩张"
       ]
     }
   ],
-  "unknown_modes": {
-    "conservative": {
-      "label": "保守：未知按 1.5 分",
-      "value": 1.5
-    },
-    "neutral": {
-      "label": "中性：未知按 2.5 分",
-      "value": 2.5
-    },
-    "exclude": {
-      "label": "剔除：只用已知维度重新归一",
-      "value": null
+  "gate_checks": [
+    {
+      "id": "gx1",
+      "text": "注册资本低于 100 万元，或连续减资",
+      "gate": "gate_fin"
     }
+  ],
+  "meta_signals": [
+    {
+      "id": "s_credit",
+      "signal": "代理商替广告主垫资、承担坏账",
+      "why": "reseller 模式下代理商给广告主授信，坏账先落在代理商身上。",
+      "source": "https://www.wearesellers.com/question/79358",
+      "grade": "C"
+    },
+    {
+      "id": "s_tail",
+      "signal": "年度奖项反复奖励长尾客户增长、客户激活",
+      "why": "Meta 2025 代理商奖项有「规模化客户激活」「高潜客户增长」等。",
+      "source": "https://yinolink.com/view/516",
+      "grade": "B"
+    },
+    {
+      "id": "s_policy",
+      "signal": "单设广告政策表现奖",
+      "why": "「广告政策表现卓越奖」说明 Meta 按代理商的违规表现考核。",
+      "source": "https://yinolink.com/view/516",
+      "grade": "B"
+    },
+    {
+      "id": "s_ai",
+      "signal": "2026 峰会：先用 AI 与自动化提效",
+      "why": "大中华区负责人以「器术势道」讲能力建设，第一步是 AI 与自动化。",
+      "source": "https://yinolink.com/view/516",
+      "grade": "B"
+    },
+    {
+      "id": "s_rebate",
+      "signal": "返点缩水，并与 KPI、封户率挂钩",
+      "why": "行业文章称 2025 年起返点大幅下调，并与 KPI 完成和封户率挂钩（非官方，待核）。",
+      "source": "https://www.baijing.cn/article/55546",
+      "grade": "C"
+    },
+    {
+      "id": "s_new",
+      "signal": "新增名额稀缺，看重独特客户池",
+      "why": "上一次新增一代是 2023 年；行业传闻新增约 2 家（非官方）。",
+      "source": "https://www.baijing.cn/article/55546",
+      "grade": "C"
+    },
+    {
+      "id": "s_long",
+      "signal": "长期合作，不是流水买卖",
+      "why": "Meta 对代理商的通用要求包括本地团队、售前售后支持和持续合规。",
+      "source": "https://www.facebook.com/business/marketing-partners/become-a-partner/fmp-product-policies",
+      "grade": "A"
+    }
+  ],
+  "existing_resellers": {
+    "source": "https://metaforbusiness.cn/resellers",
+    "accessed": "2026-10-10",
+    "note": "Meta 海外营销官网当日列出 10 家；第三方文章另列 HuntMobi（前海像样），官网未见。",
+    "list": [
+      {
+        "name": "YinoLink 易诺",
+        "desc": "专注跨境电商出海投放，从开户到稳定放量全程陪跑",
+        "tags": [
+          "smb"
+        ]
+      },
+      {
+        "name": "熊猫新媒",
+        "desc": "隶属于上市公司久其软件，AI+整合营销平台，覆盖电商/游戏/APP/短剧",
+        "tags": [
+          "listed",
+          "ai"
+        ]
+      },
+      {
+        "name": "维卓",
+        "desc": "全球 210+ 国家覆盖的整合投放与本地化增长团队",
+        "tags": [
+          "global"
+        ]
+      },
+      {
+        "name": "蓝标传媒",
+        "desc": "全球化智能营销团队，用 AI 驱动增长，连接中国品牌与全球市场",
+        "tags": [
+          "listed",
+          "brand",
+          "ai"
+        ]
+      },
+      {
+        "name": "GatherOne",
+        "desc": "全链路增长服务商（投放/增长/创意/数据/风控），7×24 账户保护",
+        "tags": [
+          "risk"
+        ]
+      },
+      {
+        "name": "飞书深诺",
+        "desc": "AI 驱动的一站式全球营销集团，覆盖 233+ 国家/地区",
+        "tags": [
+          "brand",
+          "ai",
+          "global"
+        ]
+      },
+      {
+        "name": "钛动科技",
+        "desc": "以自研 SaaS+BI+AI 打造「云+智能」出海增长平台",
+        "tags": [
+          "tech",
+          "ai"
+        ]
+      },
+      {
+        "name": "雨果跨境",
+        "desc": "跨境产业互联网平台，提供跨境电商全链路服务，适合电商从 0 到 1 出海",
+        "tags": [
+          "smb"
+        ]
+      },
+      {
+        "name": "省广集团",
+        "desc": "媒体及创意策略双认证的代理商，覆盖多行业的综合服务",
+        "tags": [
+          "listed",
+          "soe",
+          "brand"
+        ]
+      },
+      {
+        "name": "猎豹移动",
+        "desc": "出海广告老牌玩家，擅长海外增长与推广策略定制",
+        "tags": [
+          "listed"
+        ]
+      }
+    ],
+    "ownership_sources": [
+      {
+        "claim": "省广集团控股股东为广东省广新控股集团（广东省政府全资）",
+        "url": "https://m.hx168.com.cn/stock/F10/002400.html"
+      },
+      {
+        "claim": "蓝色光标 2010 年在深交所创业板上市",
+        "url": "https://vip.stock.finance.sina.com.cn/corp/view/vISSUE_MarketBulletinDetail.php?stockid=300058&id=510793"
+      },
+      {
+        "claim": "猎豹移动 2014 年在纽交所上市",
+        "url": "http://stockpage.10jqka.com.cn/CMCM/"
+      },
+      {
+        "claim": "熊猫新媒隶属上市公司久其软件",
+        "url": "https://metaforbusiness.cn/resellers"
+      }
+    ]
   },
+  "gap_matrix": [
+    {
+      "id": "gap_newpool",
+      "name": "新的客户来源",
+      "check": "c5",
+      "existing": "多数现任一代以跨境电商、APP 客户为主（官网介绍）"
+    },
+    {
+      "id": "gap_smb",
+      "name": "跨境中小卖家",
+      "check": "c2",
+      "existing": "易诺、雨果跨境已主打"
+    },
+    {
+      "id": "gap_region",
+      "name": "产业带或区域布局",
+      "check": "c3",
+      "existing": "官网介绍未突出"
+    },
+    {
+      "id": "gap_tech",
+      "name": "自研平台与自动化",
+      "check": "t1",
+      "existing": "钛动科技已主打自研 SaaS"
+    },
+    {
+      "id": "gap_credit",
+      "name": "授信与资金实力",
+      "check": "f2",
+      "existing": "上市现任一代已具备"
+    },
+    {
+      "id": "gap_risk",
+      "name": "体系化风控",
+      "check": "k4",
+      "existing": "GatherOne 主打账户风控"
+    },
+    {
+      "id": "gap_overseas",
+      "name": "海外本地节点",
+      "check": "g4",
+      "existing": "维卓、飞书深诺覆盖 200+ 国家"
+    }
+  ],
   "calibration": {
-    "how": "用已知结果回测：现任 11 家 Meta 一级代理打标签 1，同期 TikTok 一代但未拿到 Meta 一代的公司打标签 0。在初始权重 ±10 分范围内网格搜索，选排序准确率（成对比较 AUC）最高的一组，再由业务负责人确认。脚本见 agent/calibrate.js。",
-    "status": "v1 尚未建立标注集，初始权重来自上面 meta_signals 的推理。"
+    "weights": "初始权重由 Meta 公开信号推出（见每个维度的理由）。正式定权按四步：①管理层用两两比较法给初值（页面里可直接操作）；②给高度相关的维度降权，避免重复计分；③用现任一代作「选上」、同期未入选的同类公司作对照回测（agent/calibrate.js）；④权重随机抖动检验排名是否稳定。最后由业务负责人拍板并记版本。",
+    "judge": "模型只判断检查项是否成立，分数由代码算。上线前用人工核实过的检查项当标准答案，测模型判断的准确率；同一材料多次运行看分歧；两家模型交叉判断，不一致转人工；每次改提示词或换模型都重跑标准答案集。",
+    "status": "v1.1 的检查项由人工按同一套规则判断；标准答案集、回测数据尚未建立。"
   }
 }

@@ -1,45 +1,70 @@
 {
-  "note": "名单在这里增减。role: self = 我方（长虹佳华，作为对照基准），candidate = 竞标对手。新增公司后跑 `npm run agent` 采集；离线模式下没有证据的新公司会以全部「未知」进入排名。",
+  "note": "名单在这里增减。role: self = 我方（对照基准），candidate = 竞标对手。aliases 用于官方名单核验；site_domains 用于判断「公司自述」类来源；levers 是我方 30 天内能补的证据，用来算追赶路径。",
   "companies": [
     {
       "id": "changhong",
       "name": "长虹佳华控股有限公司",
       "short": "长虹佳华",
+      "aliases": ["长虹佳华", "JiaLink", "佳Link"],
       "search_name": "长虹佳华",
       "role": "self",
-      "seed_urls": ["https://www.changhongit.com/brand/show-1085.html", "https://www.163.com/dy/article/KPCMF07U05198ETO.html"]
+      "site_domains": ["changhongit.com", "chitdx-marketing.com", "group.changhong.com"],
+      "seed_urls": [
+        "https://www.changhongit.com/about/356.html",
+        "https://www.changhongit.com/news/show-1842.html",
+        "https://hea.china.com/articles/20260428/202604281857580.html"
+      ],
+      "levers": {
+        "c4": "整理 2–3 个可对外披露、带效果数据的出海营销案例",
+        "c3": "公开产业带或区域客户布局（如西部制造业出海）",
+        "o4": "披露广告管理规模或年消耗",
+        "f3": "披露授信体系：授信额度、账期、坏账率",
+        "k1": "出具工商与司法核验报告",
+        "k3": "在 Google 合作伙伴目录核验并截图",
+        "t5": "公开研发与投放技术团队规模",
+        "g5": "参加或联合举办 Meta 生态活动",
+        "g3": "公布出海营销团队的扩编计划"
+      }
+    },
+    {
+      "id": "shoplazza",
+      "name": "深圳店匠科技有限公司",
+      "short": "店匠",
+      "aliases": ["店匠", "Shoplazza", "SHOPLAZZA"],
+      "search_name": "店匠 Shoplazza",
+      "role": "candidate",
+      "site_domains": ["shoplazza.cn", "shoplazza.com"],
+      "seed_urls": ["https://www.shoplazza.cn/pages/about-us", "https://m.ebrun.com/471366.html", "https://www.sznews.com/news/content/2026-04/17/content_32019045.htm"]
     },
     {
       "id": "lingtok",
       "name": "青岛领拓跨境电商运营有限公司",
       "short": "领拓",
+      "aliases": ["领拓", "LingTok", "Leadtop"],
       "search_name": "领拓 LingTok",
       "role": "candidate",
-      "seed_urls": ["http://www.lingtok.net/about.html", "https://www.amz123.com/lingtok"]
+      "site_domains": ["lingtok.net", "leadtopmedia.com", "amz123.com/lingtok"],
+      "seed_urls": ["http://www.lingtok.net/about.html", "https://news.goalfore.cn/latest/detail/71094.html"]
     },
     {
       "id": "addragon",
       "name": "厦门龙商网络技术服务有限公司",
       "short": "龙商",
+      "aliases": ["龙商", "AdDragon", "龙赢"],
       "search_name": "龙商 AdDragon",
       "role": "candidate",
+      "site_domains": ["xm-ls.com", "amz123.com/addragon"],
       "seed_urls": ["https://xm-ls.com/about.html", "https://www.amz123.com/addragon/introduction"]
     },
     {
       "id": "ecoglobal",
       "name": "宜客数字科技(深圳)有限公司",
       "short": "宜客",
+      "aliases": ["宜客", "ECO DIGITAL"],
       "search_name": "宜客数字科技 宜客跨境",
       "role": "candidate",
-      "seed_urls": ["https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm"]
-    },
-    {
-      "id": "shoplazza",
-      "name": "深圳店匠科技有限公司",
-      "short": "店匠",
-      "search_name": "店匠 Shoplazza",
-      "role": "candidate",
-      "seed_urls": ["https://www.shoplazza.cn/pages/about-us", "https://m.ebrun.com/471366.html"]
+      "site_domains": ["ecoglobal.vip"],
+      "seed_urls": ["https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm", "https://www.shushuqiuzhi.com/article/76445"]
     }
   ]
 }

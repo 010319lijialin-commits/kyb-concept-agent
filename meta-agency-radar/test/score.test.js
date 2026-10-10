@@ -1,109 +1,227 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { scoreCompany, rank, conclusions, diffRuns, estimateCost, quoteInText } from '../lib/score.js';
+import {
+  checkState, dimScore, scoreCompany, gatesOf, rank, monteCarlo, flips, fastestPath,
+  conclusions, diffRuns, ahp, judgeAgreement, estimateCost, quoteInText, contributions,
+} from '../lib/score.js';
 import { auc, calibrate } from '../agent/calibrate.js';
 
-const fw = JSON.parse(fs.readFileSync(new URL('../data/framework.json', import.meta.url)));
-const run = JSON.parse(fs.readFileSync(new URL('../data/runs/2026-09-30.json', import.meta.url)));
-const dims = fw.dimensions;
+const read = (p) => JSON.parse(fs.readFileSync(new URL(p, import.meta.url)));
+const fw = read('../data/framework.json');
+const run = read('../data/runs/2026-10-10.json');
+const prevSim = read('../data/runs/2026-10-03.simulated.json');
+const byId = (id) => run.companies.find((c) => c.id === id);
 
-const mk = (id, scores, role = 'candidate') => ({
-  id, short: id, role,
-  dims: Object.fromEntries(dims.map((d, i) => [d.id, { score: scores[i] }])),
+// 造一家测试公司：checks 用 { id: [状态, 证据类型...] } 描述
+function mk(id, spec, role = 'candidate') {
+  const evidence = [];
+  const checks = {};
+  for (const [cid, [s, ...types]] of Object.entries(spec)) {
+    const ev = types.map((t, i) => {
+      const e = { id: `${id}-${cid}-${i}`, type: t, url: `https://${t}${i}.example.com/${cid}`, accessed: '2026-10-10' };
+      evidence.push(e);
+      return e.id;
+    });
+    checks[cid] = { s, ev };
+  }
+  return { id, short: id, role, checks, evidence };
+}
+const clients = fw.dimensions.find((d) => d.id === 'clients');
+
+test('证据分级：C 级证据撑不起「成立」，双源 B 级视同 A 级', () => {
+  const evById = {
+    a: { id: 'a', type: 'secondhand', url: null },
+    b1: { id: 'b1', type: 'self', url: 'https://x.com/1' },
+    b2: { id: 'b2', type: 'media', url: 'https://y.com/2' },
+    b3: { id: 'b3', type: 'self', url: 'https://x.com/3' },
+  };
+  assert.equal(checkState({ s: true, ev: ['a'] }, evById, fw).state, 'unknown');
+  assert.equal(checkState({ s: true, ev: ['b1'] }, evById, fw).strong, false);
+  assert.equal(checkState({ s: true, ev: ['b1', 'b3'] }, evById, fw).strong, false, '同一域名不算双源');
+  assert.equal(checkState({ s: true, ev: ['b1', 'b2'] }, evById, fw).strong, true);
 });
 
-test('全 5 分 = 100，全 0 分 = 0', () => {
-  assert.equal(scoreCompany(mk('a', [5, 5, 5, 5, 5, 5]), dims).total, 100);
-  assert.equal(scoreCompany(mk('a', [0, 0, 0, 0, 0, 0]), dims).total, 0);
+test('维度分：没有 A 级或双源证据时已证实分封顶 3.5，查不到的计入区间', () => {
+  const weak = mk('w', { c1: [true, 'self'], c2: [true, 'self'], c3: [true, 'self'], c4: [true, 'self'], c5: [null] });
+  const ds = dimScore(weak, clients, fw);
+  assert.equal(ds.raw, 4);
+  assert.equal(ds.lo, 3.5);
+  assert.ok(ds.capped);
+  assert.equal(ds.hi, 5);
+  const strong = mk('s', { c1: [true, 'official'], c2: [true, 'self'], c3: [true, 'self'], c4: [true, 'self'], c5: [false, 'self'] });
+  assert.equal(dimScore(strong, clients, fw).lo, 4);
 });
 
-test('未知不当 0 分，三种处理方式和区间', () => {
-  const c = mk('a', [null, 4, 4, 4, 4, 4]);
-  const cons = scoreCompany(c, dims, null, 'conservative');
-  const excl = scoreCompany(c, dims, null, 'exclude');
-  assert.equal(excl.total, 80);
-  assert.ok(cons.total < excl.total);
-  assert.equal(cons.coverage, 75);
-  assert.equal(cons.low, 60);
-  assert.equal(cons.high, 85);
+test('全是查不到：已证实 0 分，区间到 5', () => {
+  const ds = dimScore(mk('u', {}), clients, fw);
+  assert.equal(ds.lo, 0);
+  assert.equal(ds.hi, 5);
+  assert.ok(ds.allUnknown);
+});
+
+test('门槛三态：上市通过；注册资本不足临界；有不利线索待定；资质不符临界', () => {
+  assert.equal(gatesOf(byId('changhong'), fw).gate_fin.state, 'pass');
+  assert.equal(gatesOf(byId('changhong'), fw).gate_comp.state, 'pass');
+  assert.equal(gatesOf(byId('shoplazza'), fw).gate_fin.state, 'pass');
+  assert.equal(gatesOf(byId('shoplazza'), fw).gate_comp.state, 'pending');
+  assert.equal(gatesOf(byId('lingtok'), fw).gate_fin.state, 'pending_adverse');
+  assert.equal(gatesOf(byId('addragon'), fw).gate_comp.state, 'pending_adverse');
+  assert.equal(gatesOf(byId('ecoglobal'), fw).gate_fin.state, 'borderline');
+  assert.equal(gatesOf(byId('ecoglobal'), fw).gate_comp.state, 'borderline');
+  const bad = mk('bad', { gx1: [true, 'registry'] });
+  assert.equal(gatesOf(bad, fw).gate_fin.state, 'fail');
+  const viol = mk('v', { k1: [false, 'registry'] });
+  assert.equal(gatesOf(viol, fw).gate_comp.state, 'fail');
+});
+
+test('查不到不等于通过：没有任何信息的公司门槛是待定', () => {
+  const g = gatesOf(mk('x', {}), fw);
+  assert.equal(g.gate_fin.state, 'pending');
+  assert.equal(g.gate_comp.state, 'pending');
+});
+
+test('三种口径：保守 ≤ 中性 ≤ 乐观', () => {
+  for (const c of run.companies) {
+    const a = scoreCompany(c, fw, null, 'conservative').total;
+    const b = scoreCompany(c, fw, null, 'neutral').total;
+    const o = scoreCompany(c, fw, null, 'optimistic').total;
+    assert.ok(a <= b && b <= o, c.short);
+  }
+});
+
+test('贡献分加总等于总分', () => {
+  for (const c of run.companies) {
+    const s = scoreCompany(c, fw, null, 'conservative');
+    const sum = contributions(s, fw, null, 'conservative').reduce((a, x) => a + x.points, 0);
+    assert.ok(Math.abs(sum - s.total) < 0.5, c.short);
+  }
 });
 
 test('调权重会改变排名', () => {
-  const a = mk('a', [5, 1, 1, 1, 1, 1]);
-  const b = mk('b', [1, 5, 1, 1, 1, 1]);
-  assert.equal(rank([a, b], dims, { finance: 90, scale: 10 })[0].id, 'a');
-  assert.equal(rank([a, b], dims, { finance: 10, scale: 90 })[0].id, 'b');
+  const a = mk('a', { f1: [true, 'listed'], f2: [true, 'listed'], f4: [true, 'listed'] });
+  const b = mk('b', { c1: [true, 'official'], c2: [true, 'official'], c3: [true, 'official'] });
+  assert.equal(rank([a, b], fw, { finance: 90, clients: 5 })[0].id, 'a');
+  assert.equal(rank([a, b], fw, { finance: 5, clients: 90 })[0].id, 'b');
+});
+
+test('排名概率：可复现、概率合理', () => {
+  const m1 = monteCarlo(run.companies, fw, null, { n: 1500 });
+  const m2 = monteCarlo(run.companies, fw, null, { n: 1500 });
+  assert.deepEqual(m1, m2, '固定种子，结果可复现');
+  const sumFirst = Object.values(m1).reduce((a, x) => a + x.pFirst, 0);
+  assert.ok(sumFirst <= 1 + 1e-9);
+  assert.equal(m1.changhong.pOut, 0, '两道门槛都通过的公司不会出局');
+  for (const v of Object.values(m1)) assert.ok(v.pFirst <= v.pTop2);
+});
+
+test('翻盘条件：按建议补齐检查项后确实追平', () => {
+  const self = scoreCompany(byId('changhong'), fw, null, 'conservative');
+  const rival = scoreCompany(byId('shoplazza'), fw, null, 'conservative');
+  const f = flips(self, rival, fw, null, 'conservative');
+  assert.ok(f.gap > 0);
+  assert.ok(f.closes);
+  // 把路径里的检查项真的改成「官方证据成立」，重新算分应不低于对手
+  const patched = JSON.parse(JSON.stringify(byId('changhong')));
+  for (const st of f.checkPath) {
+    patched.checks[st.check.id] = { s: true, ev: ['ok'] };
+  }
+  patched.evidence.push({ id: 'ok', type: 'official', url: 'https://official.example.com' });
+  assert.ok(scoreCompany(patched, fw, null, 'conservative').total >= rival.total);
+  // 权重翻盘点：调到建议值后排序互换
+  for (const wf of f.weightFlips) {
+    const w = Object.fromEntries(fw.dimensions.map((d) => [d.id, d.weight]));
+    w[wf.dim.id] = wf.to;
+    const s2 = scoreCompany(byId('changhong'), fw, w, 'conservative').total;
+    const r2 = scoreCompany(byId('shoplazza'), fw, w, 'conservative').total;
+    assert.ok(s2 >= r2 - 0.11, `${wf.dim.id} → ${wf.to}`);
+  }
+});
+
+test('抓手清单：我方的追赶路径只在可执行项里选', () => {
+  const self = scoreCompany(byId('changhong'), fw, null, 'conservative');
+  const p = fastestPath(self, 100, fw, null);
+  for (const st of p.steps) assert.ok(byId('changhong').levers[st.check.id], st.check.id);
 });
 
 test('名单增减后结论跟着变', () => {
-  const all = conclusions(run.companies, dims, null, 'conservative', 'changhong');
-  assert.equal(all.ahead.map((r) => r.id).join(), 'shoplazza');
-  const noShop = conclusions(run.companies.filter((c) => c.id !== 'shoplazza'), dims, null, 'conservative', 'changhong');
+  const all = conclusions(run.companies, fw, null, 'conservative', 'changhong');
+  assert.equal(all.nearest.id, 'shoplazza');
+  const noShop = conclusions(run.companies.filter((c) => c.id !== 'shoplazza'), fw, null, 'conservative', 'changhong');
   assert.equal(noShop.self.rank, 1);
   assert.equal(noShop.ahead.length, 0);
-  assert.ok(all.actions.length > 0);
 });
 
-test('diff：对手分数下降产生机会提醒，我方变化不提醒', () => {
-  const prev = { companies: [mk('x', [4, 4, 4, 4, 4, 4]), mk('me', [3, 3, 3, 3, 3, 3], 'self')] };
-  const curr = { companies: [mk('x', [3, 4, 4, 4, 4, 4]), mk('me', [1, 3, 3, 3, 3, 3], 'self'), mk('new', [2, 2, 2, 2, 2, 2])] };
-  const { alerts, rows } = diffRuns(prev, curr, dims, null, 'conservative');
-  assert.ok(alerts.some((a) => a.level === 'opportunity' && a.company === 'x'));
-  assert.ok(!alerts.some((a) => a.company === 'me'));
-  assert.ok(rows.some((r) => r.id === 'new' && r.status === 'new'));
+test('滚动 diff：对手门槛变差、分数下降是机会，上升是威胁', () => {
+  const { alerts } = diffRuns(prevSim, run, fw, null, 'conservative');
+  assert.ok(alerts.some((a) => a.company === '宜客' && a.level === 'opportunity' && a.text.includes('合规门槛')));
+  assert.ok(alerts.some((a) => a.company === '店匠' && a.level === 'opportunity'));
+  assert.ok(alerts.some((a) => a.company === '领拓' && a.level === 'threat'));
+  assert.ok(!alerts.some((a) => a.company === '长虹佳华'));
+});
+
+test('层次分析法：一致的判断 CR≈0，权重符合比例', () => {
+  const m = [
+    [1, 2, 4],
+    [1 / 2, 1, 2],
+    [1 / 4, 1 / 2, 1],
+  ];
+  const r = ahp(m);
+  assert.ok(r.cr < 0.01);
+  assert.ok(Math.abs(r.weights[0] - 4 / 7) < 1e-6);
+  const bad = ahp([
+    [1, 9, 1 / 9],
+    [1 / 9, 1, 9],
+    [9, 1 / 9, 1],
+  ]);
+  assert.ok(bad.cr > 0.1, '自相矛盾的判断会被发现');
+});
+
+test('评委校准：统计一致率和「编造」次数', () => {
+  const gold = { a: { c1: true, c2: false, c3: null }, b: { c1: false } };
+  const pred = { a: { c1: true, c2: true }, b: { c1: null } };
+  const r = judgeAgreement(gold, pred, fw);
+  assert.equal(r.n, 3);
+  assert.equal(r.falseYes, 1);
+  assert.equal(r.abstain, 1);
+  assert.equal(r.accuracy, 1 / 3);
 });
 
 test('引文核对：原文里没有的句子被拒绝', () => {
   const page = '龙商集团于2006年在厦门成立，发展至今已拥有员工300余人。';
   assert.ok(quoteInText('龙商集团于2006年在厦门成立', page));
   assert.ok(!quoteInText('龙商集团年营收10亿元', page));
-  assert.ok(!quoteInText('龙商', page));
 });
 
-test('模型编排比全用强模型便宜', () => {
-  const e = estimateCost(5, 6);
-  assert.ok(e.yuan.total < e.allStrongYuan);
-  assert.ok(e.savedPct > 50);
+test('模型编排比全用强模型便宜；增量重跑更便宜', () => {
+  const full = estimateCost(5, 6);
+  const inc = estimateCost(5, 6, undefined, { changedShare: 0.2 });
+  assert.ok(full.yuan.total < full.allStrongYuan);
+  assert.ok(inc.yuan.total < full.yuan.total);
 });
 
-test('校验：完美区分的标注集 AUC = 1', () => {
+test('回测：完美区分的标注集 AUC = 1', () => {
   const labeled = [
-    { ...mk('p1', [5, 4, 4, 4, 4, 4]), label: 1 },
-    { ...mk('p2', [4, 4, 5, 3, 4, 3]), label: 1 },
-    { ...mk('n1', [1, 3, 3, 2, 2, 1]), label: 0 },
+    { ...mk('p1', { f1: [true, 'listed'], f2: [true, 'listed'], c1: [true, 'official'] }), label: 1 },
+    { ...mk('n1', { c1: [false, 'official'] }), label: 0 },
   ];
-  assert.equal(auc(labeled, dims, null), 1);
-  assert.equal(calibrate(labeled, dims, 1).best[0].auc, 1);
+  assert.equal(auc(labeled, fw, null), 1);
+  assert.equal(calibrate(labeled, fw, 1).best[0].auc, 1);
 });
 
-test('数据完整性：每个打分都有证据，每个证据有链接和访问日期', () => {
+test('数据完整性：成立的检查项都有证据；证据都有来源和访问日期', () => {
+  const ids = new Set([...fw.dimensions.flatMap((d) => d.checks.map((c) => c.id)), ...fw.gate_checks.map((g) => g.id)]);
   for (const c of run.companies) {
-    const ids = new Set(c.evidence.map((e) => e.id));
-    for (const d of dims) {
-      const r = c.dims[d.id];
-      if (r.score != null) assert.ok(r.evidence.length > 0, `${c.short}.${d.id} 有分无证据`);
-      for (const id of r.evidence) assert.ok(ids.has(id), `${c.short}.${d.id} 引用不存在的证据 ${id}`);
+    const evIds = new Set(c.evidence.map((e) => e.id));
+    for (const [cid, a] of Object.entries(c.checks)) {
+      assert.ok(ids.has(cid), `${c.short} 未知检查项 ${cid}`);
+      if (a.s !== null) assert.ok((a.ev || []).length > 0, `${c.short}.${cid} 有结论没证据`);
+      for (const id of a.ev || []) assert.ok(evIds.has(id), `${c.short}.${cid} 引用不存在的证据 ${id}`);
     }
     for (const e of c.evidence) {
-      assert.match(e.url, /^https?:\/\//);
-      assert.match(e.accessed, /^\d{4}-\d{2}-\d{2}$/);
+      assert.ok(fw.evidence_grades.types[e.type], `${e.id} 来源类型未定义`);
+      if (e.type !== 'secondhand') assert.match(e.url, /^https?:\/\//, e.id);
+      assert.match(e.accessed, /^\d{4}-\d{2}-\d{2}$/, e.id);
     }
   }
-});
-
-test('贡献分加总等于总分（保守模式）', async () => {
-  const { contributions } = await import('../lib/score.js');
-  for (const c of run.companies) {
-    const sum = contributions(c, dims, null, 'conservative').reduce((a, x) => a + x.points, 0);
-    assert.ok(Math.abs(sum - scoreCompany(c, dims, null, 'conservative').total) < 0.5, c.short);
-  }
-});
-
-test('diff：对手从未知补齐为高分是威胁，补齐为低分是机会', () => {
-  const prev = { companies: [mk('x', [null, 3, 3, 3, 3, 3]), mk('y', [null, 3, 3, 3, 3, 3])] };
-  const curr = { companies: [mk('x', [4, 3, 3, 3, 3, 3]), mk('y', [1, 3, 3, 3, 3, 3])] };
-  const { alerts } = diffRuns(prev, curr, dims, null, 'conservative');
-  assert.ok(alerts.some((a) => a.company === 'x' && a.level === 'threat'));
-  assert.ok(alerts.some((a) => a.company === 'y' && a.level === 'opportunity'));
 });
