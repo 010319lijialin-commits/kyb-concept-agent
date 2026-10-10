@@ -83,6 +83,14 @@ export function dimRaw(dim, earned, pts = checkPoints(dim)) {
   return Math.min(DIM_MAX, (groupedSum(dim, earned) / full) * DIM_MAX);
 }
 
+// 维度的扣分项：风险信号成立时直接扣分（例：营运资金被占用，扣「财务与授信」）。
+// 同一个事实只在一处扣：风险信号在维度里扣分，就不再影响红线核查。
+export function deductionOf(company, dim, fw, evById = Object.fromEntries((company.evidence || []).map((e) => [e.id, e]))) {
+  const list = (dim.deductions || []).filter((d) => checkState(company.checks?.[d.check], evById, fw).state === 'yes')
+    .map((d) => ({ ...d, note: company.checks?.[d.check]?.note || '' }));
+  return { points: list.reduce((a, d) => a + d.points, 0), list };
+}
+
 // ---------- 维度分 ----------
 
 export function dimScore(company, dim, fw) {
@@ -111,9 +119,10 @@ export function dimScore(company, dim, fw) {
   });
   const raw = r2(dimRaw(dim, lo, pts));
   const capped = !strongYes && raw > cap;
-  const low = capped ? cap : raw;
-  const high = Math.max(low, r2(dimRaw(dim, hi, pts)));
-  return { dim, items, raw, lo: low, hi: high, mid: (low + high) / 2, capped, strongYes, allUnknown: known === 0, coverage: known / DIM_MAX };
+  const ded = deductionOf(company, dim, fw, evById);
+  const low = Math.max(0, (capped ? cap : raw) - ded.points);
+  const high = Math.max(low, r2(dimRaw(dim, hi, pts)) - ded.points);
+  return { dim, items, raw, lo: low, hi: high, mid: (low + high) / 2, capped, strongYes, deduct: ded.points, deductions: ded.list, allUnknown: known === 0, coverage: known / DIM_MAX };
 }
 
 export function pointOf(ds, mode) {
@@ -181,9 +190,9 @@ export function gatesOf(company, fw, asOf) {
   else if (isYes('f1') || isYes('f2')) {
     const basis = isYes('f1') ? '上市公司，财报公开' : note('f2') || '有公开营收或大额机构融资';
     const recent = (isYes('f1') && fresh('f1')) || (isYes('f2') && fresh('f2'));
-    if (isYes('gx2')) fin = { state: 'pass_inferred', reason: `${basis}；但有营运资金风险信号：${note('gx2')}` };
-    else if (!recent) fin = { state: 'pass_inferred', reason: `${basis}；但支撑证据都超过 ${staleM / 12} 年，近况未知` };
-    else fin = { state: 'pass', reason: basis };
+    const sig = isYes('gx2') ? '。营运资金占用信号不是红线，已在「财务与授信」里扣分' : '';
+    if (!recent) fin = { state: 'pass_inferred', reason: `${basis}；但支撑证据都超过 ${staleM / 12} 年，近况未知` };
+    else fin = { state: 'pass', reason: basis + sig };
   }
   else if (isNo('f4')) fin = { state: 'borderline', reason: `${note('f4') || '资本实力偏弱'}。不是红线，但 Meta 可能要求保证金、保函或降低授信额度` };
   else if (isYes('f4')) fin = { state: 'pass', reason: note('f4') || '资本实力达标' };
@@ -247,6 +256,7 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
         const st = checkState(c.checks?.[ch.id], evById, fw);
         return { id: ch.id, f: st.state === 'yes' ? tierOf(ch, c.checks?.[ch.id])?.f ?? 1 : 1, ...st };
       })),
+      ded: dims.map((d) => deductionOf(c, d, fw, evById).points),
     };
   });
 
@@ -279,6 +289,7 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
         }
         let s = dimRaw(dims[di], earned, pts[di]);
         if (!strong && s > cap) s = cap;
+        s = Math.max(0, s - p.ded[di]);
         total += (ws[di] / wsum) * s * 20;
       });
       stats[p.id].sum += total;
@@ -319,7 +330,8 @@ export function checkWeightRobustness(companies, fw, weights, mode = 'conservati
       }
       let l = dimRaw(ds.dim, lo, pts[di]);
       if (!ds.strongYes && l > cap) l = cap;
-      const h = Math.max(l, dimRaw(ds.dim, hi, pts[di]));
+      l = Math.max(0, l - ds.deduct);
+      const h = Math.max(l, dimRaw(ds.dim, hi, pts[di]) - ds.deduct);
       total += w[ds.dim.id] * pointOf({ lo: l, hi: h, mid: (l + h) / 2 }, mode) * 20;
     });
     return r1(total);
@@ -394,8 +406,9 @@ export function fastestPath(scored, need, fw, weights) {
     pts: checkPoints(d),
     earned: Object.fromEntries(scored.dims[d.id].items.filter((it) => it.state === 'yes').map((it) => [it.check.id, it.earned])),
     strong: scored.dims[d.id].strongYes,
+    ded: scored.dims[d.id].deduct || 0,
   }]));
-  const lo = (s) => Math.min(s.strong ? DIM_MAX : cap, dimRaw(s.dim, s.earned, s.pts));
+  const lo = (s) => Math.max(0, Math.min(s.strong ? DIM_MAX : cap, dimRaw(s.dim, s.earned, s.pts)) - s.ded);
   const pool = [];
   // 有「可执行的抓手」清单时只在清单里选（比如我方 30 天内能补的证据），否则在所有查不到的项里选
   const levers = scored.company?.levers;
@@ -409,7 +422,7 @@ export function fastestPath(scored, need, fw, weights) {
     let best = null;
     for (const [i, c] of pool.entries()) {
       const s = state[c.dim.id];
-      const after = dimRaw(s.dim, { ...s.earned, [c.check.id]: c.points }, s.pts); // 核实成立后视为有强证据
+      const after = Math.max(0, dimRaw(s.dim, { ...s.earned, [c.check.id]: c.points }, s.pts) - s.ded); // 核实成立后视为有强证据
       const gain = (after - lo(s)) * w[c.dim.id] * 20;
       if (!best || gain > best.gain) best = { i, c, gain };
     }
@@ -510,9 +523,10 @@ export function diffRuns(prev, curr, fw, weights, mode, opts = {}) {
     for (const g of fw.gates.list) {
       const a = before.gates[g.id].state, b = now.gates[g.id].state;
       if (a === b || self) continue;
-      const pa = fw.gates.states[a].p, pb = fw.gates.states[b].p;
+      // 按严重程度排序判断变好变坏（附条件和待定的出局概率相同，但附条件更差）
+      const SEV = ['pass', 'pass_inferred', 'pending', 'borderline', 'pending_adverse', 'fail'];
       const la = fw.gates.states[a].label, lb = fw.gates.states[b].label;
-      alerts.push(pb < pa
+      alerts.push(SEV.indexOf(b) > SEV.indexOf(a)
         ? { level: 'opportunity', company: c.short, text: `${c.short}「${g.name}」从${la}变为${lb}：${now.gates[g.id].reason}。抢客户窗口。` }
         : { level: 'threat', company: c.short, text: `${c.short}「${g.name}」从${la}变为${lb}：${now.gates[g.id].reason}。` });
     }

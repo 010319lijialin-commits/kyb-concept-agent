@@ -103,7 +103,7 @@ test('全是查不到：已证实 0 分，区间到 5', () => {
 
 test('红线核查：核实通过、推断通过、待定、附条件都按规则区分', () => {
   const g = (id) => gatesOf(byId(id), fw, '2026-10-10');
-  assert.equal(g('changhong').gate_fin.state, 'pass_inferred', '上市盈利但有营运资金风险信号');
+  assert.equal(g('changhong').gate_fin.state, 'pass', '营运资金风险信号不是红线，只在维度里扣分');
   assert.equal(g('changhong').gate_comp.state, 'pass_inferred', '只按上市披露推断，未做工商核验');
   assert.equal(g('shoplazza').gate_fin.state, 'pass_inferred', '融资证据超过 3 年');
   assert.equal(g('shoplazza').gate_comp.state, 'pending');
@@ -231,6 +231,16 @@ test('滚动 diff：红线状态没变时，新出现的红线线索也要提醒
   lt.checks.gx1 = { s: true, ev: ['rumor'], note: '人工情报：听说被列为失信被执行人' };
   const { alerts } = diffRuns(run, curr, fw, null, 'conservative');
   assert.ok(alerts.some((a) => a.company === '领拓' && a.text.includes('红线线索')));
+});
+
+test('同一事实只扣一处：营运资金信号扣「财务与授信」1 分，附条件不额外计出局概率', () => {
+  const fin = fw.dimensions.find((d) => d.id === 'finance');
+  const ch = byId('changhong');
+  const with_ = dimScore(ch, fin, fw);
+  const without = dimScore({ ...ch, checks: { ...ch.checks, gx2: { s: false, ev: ['ch_ix'] } } }, fin, fw);
+  assert.equal(with_.deduct, 1);
+  assert.ok(Math.abs(without.lo - with_.lo - 1) < 1e-9);
+  assert.equal(fw.gates.states.borderline.p, fw.gates.states.pending.p);
 });
 
 test('层次分析法：一致的判断 CR≈0，权重符合比例', () => {

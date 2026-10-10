@@ -45,7 +45,7 @@ agent/                   自动流程：verify（官方名单）→ search → c
 agent/calibrate.js       权重回测
 web/radar.html           页面模板；build.js 内联成 dist/radar.html
 pdf.js                   BRIEF.md → dist/brief.pdf
-test/                    34 个测试
+test/                    35 个测试
 ```
 
 ## 用法
