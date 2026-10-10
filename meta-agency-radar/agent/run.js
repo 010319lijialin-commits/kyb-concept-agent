@@ -60,10 +60,10 @@ const mc = monteCarlo(curr.companies, fw, null);
 const k = conclusions(curr.companies, fw, null, 'conservative', selfId);
 const S = fw.gates.states;
 
-const lines = [`# Meta 一代竞争力雷达 · ${curr.run_id}`, '', '| 名次 | 公司 | 已证实分 | 可能区间 | 资金门槛 | 合规门槛 | 排第一概率 | 前 2 概率 |', '|---|---|---|---|---|---|---|---|'];
+const lines = [`# Meta 一代竞争力雷达 · ${curr.run_id}`, '', '| 名次 | 公司 | 已证实分 | 可能区间 | 资金门槛 | 合规门槛 | 排第一 | 前 2 | 门槛出局 |', '|---|---|---|---|---|---|---|---|---|'];
 for (const r of ranking) {
   const p = mc[r.id];
-  lines.push(`| ${r.rank} | ${r.company.short}${r.company.role === 'self' ? '（我方）' : ''} | ${r.total} | ${r.low}–${r.high} | ${S[r.gates.gate_fin.state].label} | ${S[r.gates.gate_comp.state].label} | ${pct(p.pFirst)} | ${pct(p.pTop2)} |`);
+  lines.push(`| ${r.rank} | ${r.company.short}${r.company.role === 'self' ? '（我方）' : ''} | ${r.total} | ${r.low}–${r.high} | ${S[r.gates.gate_fin.state].label} | ${S[r.gates.gate_comp.state].label} | ${pct(p.pFirst)} | ${pct(p.pTop2)} | ${pct(p.pOut)} |`);
 }
 if (k.flip && k.nearest) {
   lines.push('', `## 和${k.nearest.company.short}之间`, '');
@@ -88,6 +88,7 @@ if (review.length) lines.push('', `## 待人工复核`, '', review.map((x) => `-
 
 if (!args.offline) lines.push('', '## 本次成本', '', `便宜模型 ${ledger.cheap.calls} 次，强模型 ${ledger.strong.calls} 次，检索 ${ledger.search} 次，约 ¥${actualCost()}`);
 const est = estimateCost(curr.companies.length, fw.dimensions.length);
+lines.push('', '> 概率只在名单内比较，只反映门槛和查得到的信息；Meta 的主观判断、路演表现、名单外候选人不在模型里。');
 lines.push('', `预估单次全量成本 ¥${est.yuan.total}（全部用强模型约 ¥${est.allStrongYuan}）`);
 
 fs.mkdirSync(REPORTS, { recursive: true });

@@ -80,7 +80,7 @@ export function normalizeWeights(dims, weights) {
   return Object.fromEntries(dims.map((d, i) => [d.id, raw[i] / sum]));
 }
 
-export function scoreCompany(company, fw, weights, mode = 'conservative') {
+export function scoreCompany(company, fw, weights, mode = 'conservative', asOf) {
   const w = normalizeWeights(fw.dimensions, weights);
   const dims = {};
   let total = 0, low = 0, high = 0, cov = 0;
@@ -92,7 +92,7 @@ export function scoreCompany(company, fw, weights, mode = 'conservative') {
     high += w[d.id] * ds.hi * 20;
     cov += w[d.id] * ds.coverage;
   }
-  return { id: company.id, company, dims, total: r1(total), low: r1(low), high: r1(high), coverage: Math.round(cov * 100), gates: gatesOf(company, fw) };
+  return { id: company.id, company, dims, total: r1(total), low: r1(low), high: r1(high), coverage: Math.round(cov * 100), gates: gatesOf(company, fw, asOf) };
 }
 
 export function contributions(scored, fw, weights, mode = 'conservative') {
@@ -105,8 +105,20 @@ export function contributions(scored, fw, weights, mode = 'conservative') {
 
 // ---------- 门槛 ----------
 
-export function gatesOf(company, fw) {
+// 证据日期（YYYY / YYYY-MM / YYYY-MM-DD）距 asOf 超过 months 个月算过时
+export function isStale(published, asOf, months) {
+  if (!published) return true;
+  const m = String(published).match(/^(\d{4})(?:-(\d{1,2}))?/);
+  if (!m) return true;
+  const y = +m[1], mo = m[2] ? +m[2] : 6;
+  const d = new Date(asOf || Date.now());
+  return (d.getFullYear() - y) * 12 + (d.getMonth() + 1 - mo) > months;
+}
+
+export function gatesOf(company, fw, asOf) {
   const evById = Object.fromEntries((company.evidence || []).map((e) => [e.id, e]));
+  const staleM = fw.scoring.stale_months ?? 36;
+  const fresh = (id) => (company.checks?.[id]?.ev || []).map((x) => evById[x]).filter(Boolean).some((e) => gradeOf(e, fw) !== 'C' && !isStale(e.published, asOf, staleM));
   const st = (id) => checkState(company.checks?.[id], evById, fw);
   const isYes = (id) => st(id).state === 'yes';
   const isNo = (id) => st(id).state === 'no';
@@ -115,7 +127,13 @@ export function gatesOf(company, fw) {
 
   let fin;
   if (isYes('gx1')) fin = { state: 'fail', reason: note('gx1') || '注册资本低于 100 万元或连续减资' };
-  else if (isYes('f1') || isYes('f2')) fin = { state: 'pass', reason: isYes('f1') ? '上市公司，财报公开' : note('f2') || '有公开营收或大额机构融资' };
+  else if (isYes('f1') || isYes('f2')) {
+    const basis = isYes('f1') ? '上市公司，财报公开' : note('f2') || '有公开营收或大额机构融资';
+    const recent = (isYes('f1') && fresh('f1')) || (isYes('f2') && fresh('f2'));
+    if (isYes('gx2')) fin = { state: 'pass_inferred', reason: `${basis}；但有营运资金风险信号：${note('gx2')}` };
+    else if (!recent) fin = { state: 'pass_inferred', reason: `${basis}；但支撑证据都超过 ${staleM / 12} 年，近况未知` };
+    else fin = { state: 'pass', reason: basis };
+  }
   else if (isNo('f4')) fin = { state: 'borderline', reason: note('f4') || '注册资本低于 1000 万或近期减资' };
   else if (isYes('f4')) fin = { state: 'pass', reason: note('f4') || '资本实力达标' };
   else if (adverse('f4', 'gx1')) fin = { state: 'pending_adverse', reason: note('gx1') || note('f4') || '查不到，且有不利线索' };
@@ -124,8 +142,8 @@ export function gatesOf(company, fw) {
   let comp;
   if (isNo('k1')) comp = { state: 'fail', reason: note('k1') || '有失信、经营异常或重大处罚' };
   else if (isNo('k2') || isNo('k3')) comp = { state: 'borderline', reason: isNo('k3') ? note('k3') || '对外资质表述与官方目录不符' : note('k2') || '有未结重大诉讼' };
-  else if (isYes('k1')) comp = { state: 'pass', reason: '工商核验无问题' };
-  else if (isYes('f1')) comp = { state: 'pass', reason: '上市公司须持续披露重大处罚，未见相关公告（工商核验待接入）' };
+  else if (isYes('k1')) comp = { state: 'pass', reason: '工商与司法核验无问题' };
+  else if (isYes('f1')) comp = { state: 'pass_inferred', reason: '上市公司须持续披露重大处罚，未见相关公告；但未做工商与司法核验' };
   else if (adverse('k1', 'k2')) comp = { state: 'pending_adverse', reason: note('k2') || note('k1') || '查不到，且有不利线索' };
   else comp = { state: 'pending', reason: '未接入工商与司法数据，暂无不利线索' };
 
@@ -166,7 +184,7 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
   // 预先算好每家每个检查项的状态
   const prepared = companies.map((c) => {
     const evById = Object.fromEntries((c.evidence || []).map((e) => [e.id, e]));
-    const g = gatesOf(c, fw);
+    const g = gatesOf(c, fw, o.asOf);
     return {
       id: c.id,
       gp: gateP(g.gate_fin.state) * gateP(g.gate_comp.state),

@@ -89,6 +89,8 @@ section { display: grid; gap: 16px; min-width: 0; scroll-margin-top: 12px; }
 .gate::before { font-family: var(--font-mono); font-weight: 600; }
 .gate.pass { background: var(--good-soft); color: var(--good); }
 .gate.pass::before { content: "✓"; }
+.gate.pass_inferred { background: var(--good-soft); color: var(--good); border: 1px dashed var(--good); }
+.gate.pass_inferred::before { content: "✓"; }
 .gate.pending { background: var(--heat-0); color: var(--ink-2); }
 .gate.pending::before { content: "?"; }
 .gate.borderline { background: var(--warn-soft); color: var(--warn); }
@@ -112,8 +114,8 @@ details.why.flat:first-child { border-top: 0; }
 /* 第一屏 */
 .hero { background: var(--sheet); border: 1px solid var(--rule); border-top: 3px solid var(--ink); border-radius: 6px; padding: 22px; display: grid; gap: 20px; }
 .headline { font-family: var(--font-display); font-size: clamp(18px, 2.4vw, 23px); font-weight: 600; line-height: 1.6; max-width: 46em; }
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stat { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 14px; display: grid; gap: 2px; }
 .stat .v { font-family: var(--font-mono); font-size: 24px; font-weight: 600; }
 .stat .v small { font-size: 14px; color: var(--ink-2); font-weight: 400; }
@@ -305,8 +307,9 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
         <span><span class="sw" style="background:var(--bar)"></span>已证实分（查不到的不给分）</span>
         <span><span class="sw" style="background:repeating-linear-gradient(135deg,transparent 0 3px,var(--hatch) 3px 5px);border:1px solid var(--rule)"></span>查不到的信息全部成立时的上限</span>
         <span>黑线：当前口径下的分数</span>
-        <span>概率：门槛和查不到的信息随机抽样 3000 次，各家排名的比例</span>
+        <span>概率：门槛和查不到的信息随机抽样 3000 次，各家在名单内排名的比例</span>
       </div>
+      <p class="hint">概率的范围：只在名单内的公司之间比较，只反映门槛和查得到的信息。Meta 的主观判断、路演表现、名单外的其他候选人都不在模型里，所以它不是「拿到一代的概率」。</p>
       <p class="hint">点开一行看分数怎么算的、门槛为什么是这个结果。</p>
       <div id="boardDetail"></div>
     </div>
@@ -637,7 +640,6 @@ const DATA = /*__DATA__*/;
     const { k, mc } = R;
     const me = k.self;
     if (!me) { $('headline').textContent = '名单里没有长虹佳华。'; return; }
-    const allPass = k.ranking.filter((r) => r.gates.passedAll);
     const n = k.ranking.length;
     let h = '';
     if (k.ahead.length) {
@@ -645,17 +647,24 @@ const DATA = /*__DATA__*/;
     } else {
       h += `${n} 家里，长虹佳华按已证实的信息排第一（${f1(me.total)} 分）${k.nearest ? `，领先${k.nearest.company.short} ${f1(me.total - k.nearest.total)} 分` : ''}。`;
     }
-    if (me.gates.passedAll) h += allPass.length === 1 ? '但长虹佳华是唯一两道门槛都确定通过的公司。' : `长虹佳华两道门槛都确定通过（共 ${allPass.length} 家）。`;
+    const bad = (r) => ['borderline', 'pending_adverse', 'fail'].some((x) => r.gates.gate_fin.state === x || r.gates.gate_comp.state === x);
+    const clean = k.ranking.filter((r) => !bad(r));
+    if (!bad(me)) {
+      h += `门槛上${clean.map((r) => r.company.short).join('和')}都没有不利线索`;
+      const pi = ['gate_fin', 'gate_comp'].filter((g) => me.gates[g].state === 'pass_inferred');
+      h += pi.length ? `；长虹佳华的${pi.map((g) => (g === 'gate_fin' ? '资金门槛（有营运资金占用的风险信号）' : '合规门槛（未做工商核验）')).join('和')}还只是「通过·待确认」。` : '。';
+    }
     const p = mc[SELF];
-    h += `把门槛和查不到的信息一起算，长虹佳华排第一的概率约 ${pct(p.pFirst)}，排进前 2 约 ${pct(p.pTop2)}。`;
+    h += `在这 ${n} 家里，长虹佳华排第一的概率约 ${pct(p.pFirst)}，排进前 2 约 ${pct(p.pTop2)}，因门槛出局约 ${pct(p.pOut)}。`;
     if (k.flip && k.flip.gap > 0 && k.flip.closes && k.flip.checkPath.length) h += `补上${k.flip.checkPath.map((s) => `「${s.check.text.split('（')[0]}」`).join('和')}就能追平。`;
     $('headline').textContent = h;
 
     const near = k.nearest;
     $('stats').innerHTML = `
       <div class="stat"><span class="label">已证实分</span><span class="v">${f1(me.total)} <small>vs ${esc(near?.company.short || '—')} ${f1(near?.total)}</small></span><span class="hint">只算有证据的检查项</span></div>
-      <div class="stat"><span class="label">排第一的概率</span><span class="v">${pct(p.pFirst)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pFirst)}` : ''}</span></div>
-      <div class="stat"><span class="label">排进前 2 的概率</span><span class="v">${pct(p.pTop2)}</span><span class="hint">按传闻的 2 个新名额估计</span></div>`;
+      <div class="stat"><span class="label">在这 ${R.scored.length} 家里排第一</span><span class="v">${pct(p.pFirst)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pFirst)}` : ''}</span></div>
+      <div class="stat"><span class="label">在这 ${R.scored.length} 家里排进前 2</span><span class="v">${pct(p.pTop2)}</span><span class="hint">按传闻的 2 个新名额</span></div>
+      <div class="stat"><span class="label">门槛出局概率</span><span class="v">${pct(p.pOut)}</span><span class="hint">${near ? `${esc(near.company.short)} ${pct(mc[near.id].pOut)}` : ''}</span></div>`;
 
     renderActions(R);
     renderDecide(R);
@@ -765,7 +774,7 @@ const DATA = /*__DATA__*/;
   // ---------- 能不能赢 ----------
   function renderBoard(R) {
     const { scored, mc } = R;
-    $('board').innerHTML = `<thead><tr><th>名次</th><th>公司</th><th>资金门槛</th><th>合规门槛</th><th>分数（0–100）</th><th class="num">已证实</th><th>排第一</th><th>前 2</th></tr></thead><tbody>` +
+    $('board').innerHTML = `<thead><tr><th>名次</th><th>公司</th><th>资金门槛</th><th>合规门槛</th><th>分数（0–100）</th><th class="num">已证实</th><th>排第一</th><th>前 2</th><th class="num">门槛出局</th></tr></thead><tbody>` +
       scored.map((r) => {
         const p = mc[r.id];
         return `<tr class="${r.company.role === 'self' ? 'self' : ''}">
@@ -776,6 +785,7 @@ const DATA = /*__DATA__*/;
           <td class="num">${f1(r.total)}<span class="muted small">–${f1(r.high)}</span></td>
           <td><div class="prob"><span class="t"><b style="width:${p.pFirst * 100}%"></b></span><span>${pct(p.pFirst)}</span></div></td>
           <td><div class="prob"><span class="t"><b style="width:${p.pTop2 * 100}%"></b></span><span>${pct(p.pTop2)}</span></div></td>
+          <td class="num">${pct(p.pOut)}</td>
         </tr>`;
       }).join('') + '</tbody>';
     $('boardDetail').innerHTML = scored.map((r) => why(`b-${r.id}`,
@@ -860,15 +870,15 @@ const DATA = /*__DATA__*/;
     let title, line, pages = [], risks = [];
     if (slots === 'one') {
       title = '正面赢店匠：资金、合规、授信三张牌';
-      line = '只有一个名额时，Meta 会在店匠和长虹佳华之间二选一。店匠强在客户池和技术，弱在合规信息空白、不是代投团队；我们要把「稳」讲成「能放量」：授信产品化、合规内控、已有平台认证。';
-      pages = ['资金与合规：两道门槛都确定通过（对手都有待定项）', '授信产品：给中小卖家的账期和额度方案', '投放能力：Google 认证 + JiaLink 投放案例 + 微软 AI 视频广告'];
+      line = '只有一个名额时，名单内最可能是店匠和长虹佳华之间竞争（名单外可能还有其他候选人）。店匠强在客户池和技术，弱在合规信息空白、不是代投团队；我们要把「稳」讲成「能放量」：授信产品化、合规内控、已有平台认证。';
+      pages = ['资金与合规：门槛没有不利线索，并主动讲清现金流口径和可用授信额度', '授信产品：给中小卖家的账期和额度方案', '投放能力：Google 认证 + JiaLink 投放案例 + 微软 AI 视频广告'];
     } else {
       title = '找互补位：店匠补独立站商家，我们补另一块';
       line = '名额不止一个时，Meta 会挑能补不同缺口的伙伴。不要在「独立站商家 + 自动化」上和店匠比，而要占住它没有的位置。';
       if (mix === 'mfg') pages.push('主打制造业出海客户：用客户行业分布图证明现任一代覆盖不到');
       else if (mix === 'ecom') pages.push('主打授信：给电商、游戏客户账期，这是没有资金的服务商给不了的');
       else pages.push('先补数据：客户行业分布决定主打制造业还是授信');
-      pages.push('资金与合规：两道门槛都确定通过');
+      pages.push('资金与合规：门槛没有不利线索，讲清现金流口径和可用授信额度');
       pages.push('增长计划：90 天启动计划、专职团队、首年客户目标');
     }
     if (ally === 'yes') pages.unshift('已锁定的增量客户：领拓、龙商的产业带客户（合作意向书）');
@@ -877,6 +887,7 @@ const DATA = /*__DATA__*/;
     if (mix === 'mfg') risks.push('金融在 Meta 有特殊政策，部分市场要额外认证；制造业 B2B 获客传统上更偏 Google、LinkedIn。主打前先确认这些客户愿意投 Meta。');
     if (mix === 'unknown') risks.push('客户结构不清楚，主线就定不下来。这是第一件要补的内部数据。');
     if (slots === 'unknown') risks.push('名额数是传闻（约 2 个），以贵司从 Meta 拿到的一手信息为准。');
+    risks.push('资金页一定会被追问：报表经营现金流连续三年为负、应收 36 亿元。主动给出两种口径（剔除票据贴现后为正）和可用于广告授信的额度。');
     return { title, line, pages, risks };
   }
   function renderPlay() {
@@ -937,7 +948,7 @@ const DATA = /*__DATA__*/;
       `<span><b>年净利</b></span><span class="t"><span class="zero" style="left:${pos(0)}%"></span><b class="tot" style="left:${pos(Math.min(0, r.net))}%;width:${Math.max(0.5, Math.abs(r.net) / span * 100)}%"></b></span><span class="v"><b>${fmt(r.net)}</b></span>`;
     $('econOut').innerHTML = `<p>单位：万元。年消耗 ${fmt(r.spend)} 万元，授信占用资金约 <b class="num">${fmt(r.capital)}</b> 万元。</p>
       <p>按这组假设，年消耗约 <b class="num">${r.be ? fmt(r.be) : '—'}</b> 万美元打平。${r.be0 ? `如果返点取消，打平线升到约 <b class="num">${fmt(r.be0)}</b> 万美元。` : '如果返点取消，按这组假设无法打平。'}</p>
-      <p class="hint">这张账说明了第 2 个关键判断：返点缩水后，利润主要靠服务费、授信和团队效率。</p>`;
+      <p class="hint">这张账说明了第 2 个关键判断：返点缩水后，利润主要靠服务费、授信和团队效率。授信占用的资金要和现有分销业务抢营运资金。</p>`;
   }
 
   // ---------- 调一调 ----------
@@ -1103,6 +1114,7 @@ const DATA = /*__DATA__*/;
           <li>长虹佳华的「客户增量」几乎没有公开证据。结论里的追平路径，就是需要内部补的数据。</li>
           <li>Meta 这次的名额数、评估标准没有官方公开信息，页面里做成可切换的情景，以贵司的一手信息为准。</li>
           <li>权重还没有用已知结果回测；概率依赖不确定性假设，可以在「调一调」里改。</li>
+          <li>概率只比较名单内的公司；Meta 的主观判断、路演表现、其他候选人都不在模型里。门槛「通过」也只按 97% 计，因为门槛规则本身是推断的。</li>
           <li>v1.1 的检查项由人工按 Agent 规则判断；自动流程代码和测试已就绪，还没有用真实 API key 跑过。</li>
           <li>「上次自动重跑」是模拟数据，只演示机制。</li></ul>`),
     ].join('');

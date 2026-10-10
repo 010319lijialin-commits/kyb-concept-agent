@@ -60,19 +60,33 @@ test('全是查不到：已证实 0 分，区间到 5', () => {
   assert.ok(ds.allUnknown);
 });
 
-test('门槛三态：上市通过；注册资本不足临界；有不利线索待定；资质不符临界', () => {
-  assert.equal(gatesOf(byId('changhong'), fw).gate_fin.state, 'pass');
-  assert.equal(gatesOf(byId('changhong'), fw).gate_comp.state, 'pass');
-  assert.equal(gatesOf(byId('shoplazza'), fw).gate_fin.state, 'pass');
-  assert.equal(gatesOf(byId('shoplazza'), fw).gate_comp.state, 'pending');
-  assert.equal(gatesOf(byId('lingtok'), fw).gate_fin.state, 'pending_adverse');
-  assert.equal(gatesOf(byId('addragon'), fw).gate_comp.state, 'pending_adverse');
-  assert.equal(gatesOf(byId('ecoglobal'), fw).gate_fin.state, 'borderline');
-  assert.equal(gatesOf(byId('ecoglobal'), fw).gate_comp.state, 'borderline');
-  const bad = mk('bad', { gx1: [true, 'registry'] });
-  assert.equal(gatesOf(bad, fw).gate_fin.state, 'fail');
-  const viol = mk('v', { k1: [false, 'registry'] });
-  assert.equal(gatesOf(viol, fw).gate_comp.state, 'fail');
+test('门槛：核实通过、推断通过、待定、临界都按规则区分', () => {
+  const g = (id) => gatesOf(byId(id), fw, '2026-10-10');
+  assert.equal(g('changhong').gate_fin.state, 'pass_inferred', '上市盈利但有营运资金风险信号');
+  assert.equal(g('changhong').gate_comp.state, 'pass_inferred', '只按上市披露推断，未做工商核验');
+  assert.equal(g('shoplazza').gate_fin.state, 'pass_inferred', '融资证据超过 3 年');
+  assert.equal(g('shoplazza').gate_comp.state, 'pending');
+  assert.equal(g('lingtok').gate_fin.state, 'pending_adverse');
+  assert.equal(g('addragon').gate_comp.state, 'pending_adverse');
+  assert.equal(g('ecoglobal').gate_fin.state, 'borderline');
+  assert.equal(g('ecoglobal').gate_comp.state, 'borderline');
+  assert.equal(gatesOf(mk('bad', { gx1: [true, 'registry'] }), fw).gate_fin.state, 'fail');
+  assert.equal(gatesOf(mk('v', { k1: [false, 'registry'] }), fw).gate_comp.state, 'fail');
+  const clean = mk('ok', { k1: [true, 'registry'] });
+  assert.equal(gatesOf(clean, fw).gate_comp.state, 'pass', '工商核验无问题才是核实通过');
+});
+
+test('证据过时：超过 3 年的融资只能推断通过', () => {
+  const fresh = { ...mk('f', {}), checks: { f2: { s: true, ev: ['e'] } }, evidence: [{ id: 'e', type: 'media', url: 'https://a.com', published: '2026-01', accessed: '2026-10-10' }] };
+  const old = { ...fresh, evidence: [{ ...fresh.evidence[0], published: '2022-01' }] };
+  assert.equal(gatesOf(fresh, fw, '2026-10-10').gate_fin.state, 'pass');
+  assert.equal(gatesOf(old, fw, '2026-10-10').gate_fin.state, 'pass_inferred');
+});
+
+test('没有任何一家的出局概率是 0：门槛「通过」也留余量', () => {
+  const mc = monteCarlo(run.companies, fw, null, { n: 2000, asOf: '2026-10-10' });
+  for (const [id, v] of Object.entries(mc)) assert.ok(v.pOut > 0, id);
+  assert.ok(fw.gates.states.pass.p < 1);
 });
 
 test('查不到不等于通过：没有任何信息的公司门槛是待定', () => {
@@ -111,7 +125,6 @@ test('排名概率：可复现、概率合理', () => {
   assert.deepEqual(m1, m2, '固定种子，结果可复现');
   const sumFirst = Object.values(m1).reduce((a, x) => a + x.pFirst, 0);
   assert.ok(sumFirst <= 1 + 1e-9);
-  assert.equal(m1.changhong.pOut, 0, '两道门槛都通过的公司不会出局');
   for (const v of Object.values(m1)) assert.ok(v.pFirst <= v.pTop2);
 });
 
