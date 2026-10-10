@@ -272,6 +272,13 @@ button.link { font: inherit; font-size: 12px; background: none; border: 0; color
 .badge.live::before { content: "↻"; }
 .guide { background: var(--sheet); border: 1px solid var(--rule); border-left: 4px solid var(--rival); border-radius: 6px; padding: 14px 18px; display: grid; gap: 10px; }
 .guide ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
+.gl-lead { margin: 0; font-size: 14px; line-height: 1.7; }
+.gl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; }
+@media (max-width: 760px) { .gl-grid { grid-template-columns: 1fr; } }
+.gl-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.gl-list li { display: grid; grid-template-columns: 5.5em 1fr; gap: 8px; align-items: baseline; }
+.gl-list li > b { font-weight: 600; }
+.gl-marks { margin: 0; font-size: 13px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .ctl-hint { font-size: 12px; color: var(--rival); }
 /* 变化提示 */
 .delta { font-family: var(--font-mono); font-size: 12px; font-weight: 500; margin-left: 6px; white-space: nowrap; }
@@ -298,19 +305,37 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
       <span>4 家竞标对手 + 长虹佳华对照</span>
       <span>先过门槛，再比分数；查不到就标「查不到」</span>
       <span id="stateTag"></span>
-      <button class="link" type="button" id="guideOpen" hidden>使用说明</button>
+      <button class="link" type="button" id="guideOpen" hidden>概要与用法</button>
     </div>
   </header>
   <nav class="jump" aria-label="页面目录">
     <a href="#verdict">结论</a><a href="#win">能不能赢</a><a href="#whyus">凭什么选我们</a><a href="#robust">稳不稳</a><a href="#play">怎么打</a><a href="#worth">值不值得</a><a href="#adjust">调一调</a><a href="#evidence">证据</a><a href="#method">方法</a>
   </nav>
-  <div class="guide" id="guide" role="note" aria-label="使用说明">
-    <div class="row" style="justify-content:space-between"><b>第一次用？三步看懂这个页面</b><button class="link" type="button" id="guideClose">知道了，收起</button></div>
-    <ol>
-      <li><span class="badge tap">可点开</span> 带 ▸ 的行都能点开，一层层看到「为什么」、各家对比、证据和来源。</li>
-      <li><span class="badge adj">可调</span> 在「调一调」拖权重、增减公司、录入新情报；「怎么打」可以切换情景，「值不值得」可以改数字。</li>
-      <li><span class="badge live">会随调整变化</span> 调完后，变了的数字会闪一下，和初始结论不同的数字旁边标出「vs 初始」；屏幕底部弹出变化摘要，顶部黄框写明变了什么、因为什么。</li>
-    </ol>
+  <div class="guide" id="guide" role="note" aria-label="概要与用法">
+    <div class="row" style="justify-content:space-between"><b>概要：这是什么、有什么、怎么用</b><button class="link" type="button" id="guideClose">知道了，收起</button></div>
+    <p class="gl-lead">长虹佳华竞标 Meta 中国大陆一级代理的竞对分析。站在 Meta 渠道团队的角度，把 4 家对手和长虹佳华的公开信息整理成有出处、分等级的证据，先过资金和合规两道门槛，再按 6 个维度打分，给出排名概率、差距来源和行动建议。所有数都能追到证据原文；换权重、换名单、加情报，结论当场重算。</p>
+    <div class="gl-grid">
+      <div>
+        <span class="label">里面有什么</span>
+        <ul class="gl-list">
+          <li><b>结论</b><span><a href="#verdict">第一屏</a>：一句话结论、四个关键数、行动建议、要拍板的三件事</span></li>
+          <li><b>依据</b><span><a href="#win">能不能赢</a>（门槛、分数、排名概率）· <a href="#whyus">凭什么选我们</a>（Meta 要补的缺口）· <a href="#robust">稳不稳</a>（证据强度、翻盘条件、分值敏感性）</span></li>
+          <li><b>打法</b><span><a href="#play">怎么打</a>（按名额和客户结构切换路演主线）· <a href="#worth">值不值得</a>（一代的账）</span></li>
+          <li><b>动手</b><span><a href="#adjust">调一调</a>（权重、检查项分值、名单、新情报）· <a href="#evidence">证据</a> · <a href="#method">方法、成本与边界</a></span></li>
+        </ul>
+      </div>
+      <div>
+        <span class="label">怎么用</span>
+        <ul class="gl-list">
+          <li><b>1 分钟</b><span>只看第一屏：结论、四个数、要拍板的三件事。</span></li>
+          <li><b>5 分钟</b><span>再看「能不能赢」和「稳不稳」：差在哪、补什么能反超、结论靠不靠得住。</span></li>
+          <li><b>质疑某个数</b><span>点它旁边的 ▸，一层层展开到检查项和证据原文。</span></li>
+          <li><b>换个假设</b><span>到「调一调」改权重或检查项分值，顶部黄框会写明结论变了什么、因为什么。</span></li>
+          <li><b>有新消息</b><span>在「调一调 → 市场新信息」录入，等同重跑一次，并生成机会或威胁提醒。</span></li>
+        </ul>
+      </div>
+    </div>
+    <p class="gl-marks"><span><span class="badge tap">可点开</span> 能一层层展开</span><span><span class="badge adj">可调</span> 能拖动、勾选、切换或改数字</span><span><span class="badge live">会随调整变化</span> 会跟着重算，变了的数字闪一下并标出「vs 初始」</span></p>
     <div class="row"><button class="btn" type="button" id="tryBtn">试一试：把「客户增量」权重从 25 调到 10</button><span class="hint">随时可以点「恢复初始结论」</span></div>
   </div>
 
@@ -2136,7 +2161,7 @@ const DATA = {"framework":{"version":"v2-2026-10-10","perspective":"站在 Meta 
     update();
   });
   $('resetBtn').addEventListener('click', reset);
-  const GKEY = 'radar-guide-off';
+  const GKEY = 'radar-guide-off-v2';
   const setGuide = (off) => { $('guide').hidden = off; $('guideOpen').hidden = !off; try { localStorage.setItem(GKEY, off ? '1' : ''); } catch (e) {} };
   let gOff = false;
   try { gOff = localStorage.getItem(GKEY) === '1'; } catch (e) {}
