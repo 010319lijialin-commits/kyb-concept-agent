@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {
   checkState, dimScore, scoreCompany, gatesOf, rank, monteCarlo, flips, fastestPath,
   conclusions, diffRuns, ahp, judgeAgreement, estimateCost, quoteInText, contributions,
-  checkPoints, tierOf, dimRaw, checkWeightRobustness,
+  checkPoints, tierOf, dimRaw, checkWeightRobustness, rivalPlays,
 } from '../lib/score.js';
 import { auc, calibrate } from '../agent/calibrate.js';
 
@@ -241,6 +241,20 @@ test('同一事实只扣一处：营运资金信号扣「财务与授信」1 分
   assert.equal(with_.deduct, 1);
   assert.ok(Math.abs(without.lo - with_.lo - 1) < 1e-9);
   assert.equal(fw.gates.states.borderline.p, fw.gates.states.pending.p);
+});
+
+test('对每个对手怎么打：按数据定立场，不写死公司名', () => {
+  const k = conclusions(run.companies, fw, null, 'conservative', 'changhong');
+  const plays = Object.fromEntries(rivalPlays(k, fw, null, 'conservative').map((p) => [p.id, p]));
+  assert.equal(Object.keys(plays).length, 4, '四家对手都有');
+  assert.equal(plays.shoplazza.stance, 'differentiate', '领先我方的是主要对手');
+  assert.equal(plays.addragon.stance, 'ally', '客户不弱、资金弱、合规没问题 → 结盟候选');
+  assert.equal(plays.ecoglobal.stance, 'watch', '合规附条件的不建议结盟');
+  assert.ok(plays.shoplazza.theyLead.length && plays.shoplazza.weLead.length);
+  // 换名字不影响立场
+  const renamed = run.companies.map((c) => (c.id === 'addragon' ? { ...c, id: 'x1', short: '某公司' } : c));
+  const k2 = conclusions(renamed, fw, null, 'conservative', 'changhong');
+  assert.equal(rivalPlays(k2, fw, null, 'conservative').find((p) => p.id === 'x1').stance, 'ally');
 });
 
 test('层次分析法：一致的判断 CR≈0，权重符合比例', () => {

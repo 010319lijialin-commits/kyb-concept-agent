@@ -494,6 +494,41 @@ export function conclusions(companies, fw, weights, mode, selfId) {
   return { ranking, self, rivals, perDim, strengths, gaps, ahead, nearest, flip, actions };
 }
 
+// ---------- 对每个对手怎么打 ----------
+
+// 按数据给每个对手定立场，不写死公司名：
+//   领先我方 → 主要对手：错位竞争（不在它领先的维度硬拼）
+//   落后我方，客户增量不弱但资金明显偏弱，且合规没有问题 → 结盟候选（我方出授信，它做二级代理）
+//   其余 → 盯住：看它要补什么才能反超我们
+export function rivalPlays(k, fw, weights, mode = 'conservative', mc = null) {
+  const me = k.self;
+  if (!me) return [];
+  const w = normalizeWeights(fw.dimensions, weights);
+  const pt = (r, id) => (r.dims[id] ? pointOf(r.dims[id], mode) : 0);
+  const BAD = ['borderline', 'pending_adverse', 'fail'];
+  return k.rivals.map((r) => {
+    const diffs = fw.dimensions.map((d) => ({ dim: d, rival: pt(r, d.id), mine: pt(me, d.id), v: r1((pt(r, d.id) - pt(me, d.id)) * w[d.id] * 20) }));
+    const theyLead = diffs.filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+    const weLead = diffs.filter((x) => x.v < 0).sort((a, b) => a.v - b.v);
+    const gap = r1(r.total - me.total);
+    const flagged = fw.gates.list.filter((g) => BAD.includes(r.gates[g.id].state)).map((g) => ({ gate: g, ...r.gates[g.id] }));
+    const clientsOk = pt(r, 'clients') > 0 && pt(r, 'clients') >= pt(me, 'clients') * 0.8;
+    const financeWeak = pt(r, 'finance') <= pt(me, 'finance') - 1;
+    const compOk = !BAD.includes(r.gates.gate_comp?.state);
+    let stance;
+    if (gap > 0) stance = 'differentiate';
+    else if (clientsOk && financeWeak && compOk) stance = 'ally';
+    else stance = 'watch';
+    const f = flips(me, r, fw, weights, mode);
+    return {
+      id: r.id, r, gap, stance, theyLead, weLead, flagged,
+      // 落后的一方最快怎么追：我方落后时是我方的路径，我方领先时是对手的路径
+      path: f.checkPath, pathOwner: f.pathOwner, pathCloses: f.closes,
+      pTop2: mc?.[r.id]?.pTop2 ?? null, pFirst: mc?.[r.id]?.pFirst ?? null,
+    };
+  });
+}
+
 // ---------- 滚动 diff ----------
 
 export function diffRuns(prev, curr, fw, weights, mode, opts = {}) {

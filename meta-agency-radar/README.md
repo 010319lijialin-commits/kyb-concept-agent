@@ -40,12 +40,12 @@ data/companies.json      名单（在这里增减公司；我方的可执行抓�
 data/runs/<日期>.json     每一期：检查项判断 + 证据 + 资质核验 + 口径冲突 + 关键判断
 data/runs/*.simulated.json 模拟基线，只用于演示滚动对比
 data/archive/v1/         v1 的框架和数据
-lib/score.js             评分引擎（Node 和页面共用）：红线核查、检查项分值（分档、分组）、证据封顶、排名概率、分值稳定性、翻盘条件、对比、层次分析法、评委一致率、成本
+lib/score.js             评分引擎（Node 和页面共用）：红线核查、对每个对手的立场、检查项分值（分档、分组）、证据封顶、排名概率、分值稳定性、翻盘条件、对比、层次分析法、评委一致率、成本
 agent/                   自动流程：verify（官方名单）→ search → collect（便宜模型抽取 + 引文核对 + 来源分级）→ judge（强模型判断检查项）→ run（打分、对比、提醒、飞书卡片）
 agent/calibrate.js       权重回测
 web/radar.html           页面模板；build.js 内联成 dist/radar.html
 pdf.js                   BRIEF.md → dist/brief.pdf
-test/                    35 个测试
+test/                    36 个测试
 ```
 
 ## 用法

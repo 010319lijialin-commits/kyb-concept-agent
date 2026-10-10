@@ -249,6 +249,8 @@ button.link { font: inherit; font-size: 12px; background: none; border: 0; color
 .alert.opportunity { border-left: 4px solid var(--good); }
 .alert.threat { border-left: 4px solid var(--bad); }
 .alert.info { border-left: 4px solid var(--warn); }
+.mx td, .mx th { padding: 4px 6px; }
+.mx td:first-child { min-width: 9em; }
 .alloc { display: grid; grid-template-columns: 1fr 60px 76px; gap: 6px 8px; align-items: center; }
 .alloc input { width: 60px; }
 .alloc output { white-space: nowrap; }
@@ -462,7 +464,7 @@ footer { font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--rule)
         <h3>倒排 30 天</h3>
         <div class="stack" style="gap:6px">
           <div class="phase"><b>D1–D7</b><span>补齐内部数据：出海客户行业分布、广告消耗、授信额度与坏账率；在 Google 目录核验合作伙伴资质。</span></div>
-          <div class="phase"><b>D8–D15</b><span>接入工商与司法数据，核实四家对手的减资、诉讼、参保人数；和领拓、龙商初步接触结盟。</span></div>
+          <div class="phase"><b>D8–D15</b><span>接入工商与司法数据，核实四家对手的减资、诉讼、参保人数；和结盟候选初步接触。</span></div>
           <div class="phase"><b>D16–D30</b><span>按选定主线写 20 页提案；Agent 改为每周自动重跑并推送飞书。</span></div>
         </div>
       </div>
@@ -707,6 +709,21 @@ const DATA = /*__DATA__*/;
         <span class="v">${ds.allUnknown ? '查不到' : `${f1(ds.lo)}<span class="muted">–${f1(ds.hi)}</span>`}</span>`;
     }).join('')}</div>`;
   }
+  // 一个维度里，五家每个检查项的判断放在一张表里
+  function checkMatrix(dimId, scored) {
+    const d = DIM[dimId];
+    const pts = checkPoints(d);
+    const cols = [...scored].sort((a, b) => (b.id === SELF) - (a.id === SELF));
+    return `<div class="scroll"><table class="plainT mx" style="min-width:440px"><tr><th>检查项</th><th class="n">分值</th>${cols.map((r) => `<th style="white-space:nowrap">${esc(r.company.short)}</th>`).join('')}</tr>
+      ${d.checks.map((c) => `<tr><td title="${esc(c.text)}">${esc(c.text.split('：')[0].split('（')[0])}</td><td class="n">${f2(pts[c.id])}</td>${cols.map((r) => `<td>${mark(r.company, c.id)}</td>`).join('')}</tr>`).join('')}
+      <tr><td><b>维度分（0–5）</b></td><td></td>${cols.map((r) => `<td class="num"><b>${f1(r.dims[dimId].lo)}</b></td>`).join('')}</tr></table></div>
+      <p class="hint">✓ 成立 · ✕ 不成立 · ? 查不到 · ! 查不到且有不利线索。鼠标停在符号上看依据。</p>`;
+  }
+  function dimRankText(dimId, scored) {
+    const rows = [...scored].sort((a, b) => b.dims[dimId].lo - a.dims[dimId].lo);
+    const pos = rows.findIndex((r) => r.id === SELF) + 1;
+    return { pos, n: rows.length, list: rows.map((r) => `${r.company.short} ${f1(r.dims[dimId].lo)}`).join('、') };
+  }
   function rubric(d) {
     const sig = FW.meta_signals.filter((s) => (d.signals || []).includes(s.id));
     return `<p class="small">初始权重 ${d.weight}：${esc(d.why_weight)}</p>
@@ -723,7 +740,8 @@ const DATA = /*__DATA__*/;
     const k = conclusions(companies, FW, weights, mode, SELF);
     const mc = monteCarlo(companies, FW, weights, { n: MC_N, ...unc });
     const rob = checkWeightRobustness(companies, FW, weights, mode, { n: ROB_N });
-    return { k, mc, rob, scored: k.ranking };
+    const plays = rivalPlays(k, FW, weights, mode, mc);
+    return { k, mc, rob, plays, scored: k.ranking };
   }
   let BASE = null; // 初始结论，算一次即可
 
@@ -750,6 +768,8 @@ const DATA = /*__DATA__*/;
       const pi = ['gate_fin', 'gate_comp'].filter((g) => me.gates[g].state === 'pass_inferred');
       h += pi.length ? `；长虹佳华的${pi.map((g) => (g === 'gate_fin' ? '资金（有营运资金占用的风险信号）' : '合规（未做工商核验）')).join('和')}还只是「通过·待确认」。` : '。';
     }
+    const others = k.rivals.filter((r) => !k.ahead.includes(r));
+    if (others.length) h += `其余${others.length}家：${others.map((r) => `${r.company.short}（${f1(r.total)}，进前 2 概率 ${pct(mc[r.id].pTop2)}）`).join('、')}。`;
     const p = mc[SELF];
     h += `在这 ${n} 家里，长虹佳华排第一的概率约 ${pct(p.pFirst)}，排进前 2 约 ${pct(p.pTop2)}，出局概率约 ${pct(p.pOut)}（没有踩红线的证据，这是红线未核实留的余量）。`;
     if (k.flip && k.flip.gap > 0 && k.flip.closes && k.flip.checkPath.length) h += `补上${k.flip.checkPath.map((s) => `「${s.check.text.split('（')[0]}」`).join('和')}就能反超。`;
@@ -783,37 +803,50 @@ const DATA = /*__DATA__*/;
     k.actions.forEach((a) => {
       const pd = k.perDim.find((x) => x.dim.id === a.dim.id);
       const best = pd.best?.r;
+      const rk = dimRankText(a.dim.id, scored);
       const reason = a.type === 'gap'
-        ? `长虹佳华「${a.dim.name}」已证实 ${f1(pd.mine)} 分，${best.company.short} ${f1(pd.best.score)} 分。这一项占权重 ${pct(w[a.dim.id])}，差距折合总分 ${f1(pd.weighted)} 分。`
-        : `长虹佳华「${a.dim.name}」已证实 ${f1(pd.mine)} 分，${best ? `对手最高 ${f1(pd.best.score)}（${best.company.short}）` : '对手都查不到'}。这是对手短期内补不上的长板。`;
-      const focus = [k.self, best].filter(Boolean);
+        ? `长虹佳华「${a.dim.name}」已证实 ${f1(pd.mine)} 分，${rk.n} 家里排第 ${rk.pos}（${rk.list}）。这一项占权重 ${pct(w[a.dim.id])}，和最高的${best.company.short}差距折合总分 ${f1(pd.weighted)} 分。`
+        : `长虹佳华「${a.dim.name}」已证实 ${f1(pd.mine)} 分，${rk.n} 家里排第 ${rk.pos}（${rk.list}）。这是对手短期内补不上的长板。`;
       items.push({
         key: `act-${a.type}-${a.dim.id}`, tag: a.type === 'gap' ? ['bad', '补短板'] : ['good', '放大长板'],
         title: `${a.type === 'gap' ? '补' : '用好'}「${a.dim.short}」`, text: a.text,
         body: `<p class="small">${esc(reason)}</p>${dimBars(a.dim.id, scored)}
-          ${why(`act-${a.dim.id}-chk`, '<span>看双方的检查项和证据</span>', focus.map((r) => `<p class="small"><b>${esc(r.company.short)}</b></p>${checkList(r.company, a.dim.id)}`).join(''), 'lv2')}
+          ${why(`act-${a.dim.id}-chk`, '<span>看五家的检查项对比</span>', checkMatrix(a.dim.id, scored) + why(`act-${a.dim.id}-ev`, '<span>看每家的证据原文</span>', scored.map((r) => `<p class="small"><b>${esc(r.company.short)}</b></p>${checkList(r.company, a.dim.id)}`).join(''), 'lv2'), 'lv2')}
           ${why(`act-${a.dim.id}-rb`, `<span>「${esc(a.dim.name)}」怎么打分、权重为什么是这个数</span>`, rubric(a.dim), 'lv2')}`,
       });
     });
-    const small = scored.filter((r) => ['lingtok', 'addragon'].includes(r.id));
-    if (small.length) {
+    const P = R.plays || [];
+    if (P.length) {
+      const LABEL = { differentiate: '主要对手：错位竞争', ally: '结盟候选', watch: '盯住' };
+      const names = (st) => P.filter((p) => p.stance === st).map((p) => p.r.company.short).join('、');
+      const summary = [['differentiate', '错位竞争'], ['ally', '可谈结盟'], ['watch', '盯住']].filter(([st]) => names(st)).map(([st, l]) => `${names(st)}：${l}`).join('；');
+      const dl = (x) => `「${x.dim.short}」（+${f1(Math.abs(x.v))}）`;
+      const card = (p) => {
+        const c = p.r.company.short;
+        let how;
+        if (p.stance === 'differentiate') {
+          how = `不在${p.theyLead.slice(0, 1).map((x) => `「${x.dim.short}」`).join('')}上和它硬拼，路演主打${p.weLead.slice(0, 2).map((x) => `「${x.dim.short}」`).join('和') || '我们的长板'}。名额 2 个时它更像互补伙伴，1 个时是正面对手。`
+            + (p.pathOwner === 'self' && p.path.length ? `我们最快反超：${p.path.map((s) => s.how || s.check.text).join('；')}${p.pathCloses ? '' : '（全补上也还差一点）'}。` : '');
+        } else if (p.stance === 'ally') {
+          const cl = p.theyLead.concat(p.weLead).find((x) => x.dim.id === 'clients');
+          const fin = p.weLead.find((x) => x.dim.id === 'finance');
+          const yes = (id) => checkState(p.r.company.checks?.[id], Object.fromEntries((p.r.company.evidence || []).map((e) => [e.id, e])), FW).state === 'yes';
+          const assets = [yes('c3') && '有产业带布局', yes('c5') && '有错位的客户来源', yes('c1') && '客户规模过万'].filter(Boolean);
+          how = `它的「客户增量」${cl ? f1(cl.rival) : '—'} 分（我们 ${cl ? f1(cl.mine) : '—'}）${assets.length ? `，${assets.join('、')}` : ''}，但「财务与授信」只有 ${fin ? f1(fin.rival) : '—'} 分，授信能力有限。路演前谈合作意向：中标后我们出授信，它做二级代理，路演时就能展示已锁定的增量客户。谈之前先核实它的工商信息。`;
+        } else {
+          how = p.path.length ? `它要反超我们，最快要补：${p.path.map((s) => s.check.text.split('：')[0].split('（')[0]).join('；')}${p.pathCloses ? '' : '（全补上也追不上）'}。盯住这些动向。` : '它短期内追不上我们，只需定期看提醒。';
+        }
+        const flag = p.flagged.length ? `<p class="hint">红线核查：${p.flagged.map((f) => `${esc(f.gate.name)}「${esc(GS[f.state].label)}」，${esc(f.reason)}`).join('；')}</p>` : '';
+        return `<div class="stack" style="gap:4px;border-top:1px solid var(--rule);padding-top:8px">
+          <p class="small"><b>${esc(c)}</b> <span class="tag ${p.stance === 'differentiate' ? 'bad' : p.stance === 'ally' ? 'good' : ''}">${LABEL[p.stance]}</span> <span class="muted">${p.gap > 0 ? `领先我们 ${f1(p.gap)} 分` : `落后我们 ${f1(-p.gap)} 分`}${p.pTop2 != null ? ` · 进前 2 概率 ${pct(p.pTop2)}` : ''}</span></p>
+          <p class="small">它强在：${p.theyLead.slice(0, 3).map(dl).join('、') || '没有比我们强的维度'}；我们强在：${p.weLead.slice(0, 3).map(dl).join('、') || '没有'}。<span class="muted">（括号里是折合总分的差距）</span></p>
+          <p class="small"><b>怎么打</b>：${esc(how)}</p>${flag}
+          <p class="small"><button class="link" type="button" data-goto="co-${esc(p.id)}">看${esc(c)}的全部检查项和证据</button></p></div>`;
+      };
       items.push({
-        key: 'act-ally', tag: ['', '竞合'], title: '提前结盟，把对手变成渠道',
-        text: `${small.map((r) => r.company.short).join('、')}有产业带客户，但资本偏弱或待核，授信能力有限。路演前签合作意向：中标后长虹佳华出授信，它们做二级代理。`,
-        body: `<p class="small">依据：它们的「客户增量」有分，资金红线核查是${small.map((r) => `${r.company.short}${GS[r.gates.gate_fin.state].label}`).join('、')}（不是红线，但 Meta 给它们的授信额度会受限）；长虹佳华上市、有授信体系，正好相反。</p>
-          <span class="label">客户增量</span>${dimBars('clients', scored)}
-          <span class="label">财务与授信</span>${dimBars('finance', scored)}
-          ${why('act-ally-ev', '<span>看资金核查依据</span>', small.map((r) => `<p class="small"><b>${esc(r.company.short)}</b> 资金红线：${esc(r.gates.gate_fin.reason)}</p>`).join(''), 'lv2')}`,
-      });
-    }
-    const shop = scored.find((r) => r.id === 'shoplazza');
-    if (shop) {
-      items.push({
-        key: 'act-shop', tag: ['', '竞合'], title: '和店匠找互补位，不正面硬拼',
-        text: '店匠补的是「独立站商家 + 自动化」，不是代投团队。可以提议做它的开户和授信后端，或者在路演里明确和它错位。',
-        body: `<p class="small">依据：店匠「技术 AI」「客户增量」领先，合规维度公开信息为空，合规红线核查${GS[shop.gates.gate_comp.state].label}；它不在 Meta 代理商名单上，和 Meta 是生态合作。</p>
-          <span class="label">技术与 AI</span>${dimBars('tech', scored)}
-          ${why('act-shop-ev', '<span>看店匠的检查项和证据</span>', checkList(shop.company, 'tech') + checkList(shop.company, 'compliance'), 'lv2')}`,
+        key: 'act-rivals', tag: ['', '竞合'], title: `对${P.length}家对手分别怎么打`,
+        text: summary + '。立场按数据判断：领先我们的错位竞争；客户不弱但资金弱、合规没问题的谈结盟；其余盯住。',
+        body: P.map(card).join(''),
       });
     }
     $('actions').innerHTML = items.map((a) => `<li>${why(a.key,
@@ -822,11 +855,11 @@ const DATA = /*__DATA__*/;
 
   function renderDecide(R) {
     const st = story();
-    const small = R.scored.filter((r) => ['lingtok', 'addragon'].includes(r.id)).map((r) => r.company.short);
+    const small = (R.plays || []).filter((p) => p.stance === 'ally').map((p) => p.r.company.short);
     const path = R.k.flip?.gap > 0 ? R.k.flip.checkPath : [];
     $('decide').innerHTML = `
       <li data-fk="decide-1"><b>路演主线</b>：当前情景下推荐「${esc(st.title)}」。名额数和客户结构一变，主线就要换（见「怎么打」）。</li>
-      <li><b>是否启动结盟洽谈</b>${small.length ? `：和${esc(small.join('、'))}谈合作意向，路演时展示已锁定的增量客户` : ''}。</li>
+      <li><b>是否启动结盟洽谈</b>${small.length ? `：和${esc(small.join('、'))}谈合作意向，路演时展示已锁定的增量客户` : '：当前没有符合条件的结盟候选'}。</li>
       <li><b>7 天内补齐内部数据</b>，指定负责人：${path.length ? path.map((s) => esc(s.how || s.check.text)).join('；') + '（补上就能反超）；' : ''}授信额度和坏账率。</li>`;
   }
 
@@ -998,23 +1031,30 @@ const DATA = /*__DATA__*/;
   };
   function story() {
     const { slots, mix, ally } = S.scen;
+    const P = CUR?.plays || [];
+    // 主要对手：领先我们的里分数最高的；都不领先时取第二名
+    const main = P.filter((p) => p.stance === 'differentiate').sort((a, b) => b.gap - a.gap)[0] || [...P].sort((a, b) => b.gap - a.gap)[0];
+    const allies = P.filter((p) => p.stance === 'ally').map((p) => p.r.company.short);
+    const mn = main?.r.company.short || '主要对手';
+    const theirs = (main?.theyLead || []).slice(0, 2).map((x) => `「${x.dim.short}」`).join('和') || '它的强项';
+    const ours = (main?.weLead || []).slice(0, 2).map((x) => `「${x.dim.short}」`).join('和') || '我们的长板';
     let title, line, pages = [], risks = [];
     if (slots === 'one') {
-      title = '正面赢店匠：资金、合规、授信三张牌';
-      line = '只有一个名额时，名单内最可能是店匠和长虹佳华之间竞争（名单外可能还有其他候选人）。店匠强在客户池和技术，弱在合规信息空白、不是代投团队；我们要把「稳」讲成「能放量」：授信产品化、合规内控、已有平台认证。';
-      pages = ['资金与合规：红线核查没有不利线索，并主动讲清现金流口径和可用授信额度', '授信产品：给中小卖家的账期和额度方案', '投放能力：Google 认证 + JiaLink 投放案例 + 微软 AI 视频广告'];
+      title = `正面赢${mn}：主打${ours}`;
+      line = `只有一个名额时，名单内最可能是${mn}和长虹佳华之间竞争（名单外可能还有其他候选人）。${mn}强在${theirs}，我们强在${ours}。要把我们的长板讲成 Meta 最看重的能力：授信能放量、合规管得住客户。`;
+      pages = ['资金与合规：主动讲清现金流口径和可用授信额度；广告合规单设一页（开户 KYC、素材预审、违规率月报）', '授信产品：给中小卖家的账期和额度方案', '投放能力：Google 认证 + JiaLink 投放案例 + 微软 AI 视频广告'];
     } else {
-      title = '找互补位：店匠补独立站商家，我们补另一块';
-      line = '名额不止一个时，Meta 会挑能补不同缺口的伙伴。不要在「独立站商家 + 自动化」上和店匠比，而要占住它没有的位置。';
+      title = `找互补位：不和${mn}比${theirs}，占住${ours}`;
+      line = `名额不止一个时，Meta 会挑能补不同缺口的伙伴。不要在${theirs}上和${mn}比，而要占住它没有的位置。`;
       if (mix === 'mfg') pages.push('主打制造业出海客户：用客户行业分布图证明现任一代覆盖不到');
       else if (mix === 'ecom') pages.push('主打授信：给电商、游戏客户账期，这是没有资金的服务商给不了的');
       else pages.push('先补数据：客户行业分布决定主打制造业还是授信');
-      pages.push('资金与合规：红线核查没有不利线索，讲清现金流口径和可用授信额度');
+      pages.push('资金与合规：讲清现金流口径和可用授信额度；广告合规单设一页');
       pages.push('增长计划：90 天启动计划、专职团队、首年客户目标');
     }
-    if (ally === 'yes') pages.unshift('已锁定的增量客户：领拓、龙商的产业带客户（合作意向书）');
-    if (ally === 'no') risks.push('签不下产业带伙伴，「客户增量」只能靠自己的客户池，这是当前最大短板。');
-    if (ally === 'unknown') risks.push('结盟还没谈：这是补「客户增量」最快的路。');
+    if (ally === 'yes') pages.unshift(allies.length ? `已锁定的增量客户：${allies.join('、')}的客户（合作意向书）` : '已锁定的增量客户（合作意向书）');
+    if (ally === 'no') risks.push('签不下结盟伙伴，「客户增量」只能靠自己的客户池，这是当前最大短板。');
+    if (ally === 'unknown') risks.push(allies.length ? `结盟还没谈（候选：${allies.join('、')}）：这是补「客户增量」最快的路。` : '结盟还没谈：这是补「客户增量」最快的路。');
     if (mix === 'mfg') risks.push('金融在 Meta 有特殊政策，部分市场要额外认证；制造业 B2B 获客传统上更偏 Google、LinkedIn。主打前先确认这些客户愿意投 Meta。');
     if (mix === 'unknown') risks.push('客户结构不清楚，主线就定不下来。这是第一件要补的内部数据。');
     if (slots === 'unknown') risks.push('名额数是传闻（约 2 个），以贵司从 Meta 拿到的一手信息为准。');
@@ -1284,7 +1324,7 @@ const DATA = /*__DATA__*/;
     clearTimeout(timer);
     timer = setTimeout(update, 120);
   }
-  let booted = false, LAST = null, toastTimer = null;
+  let booted = false, LAST = null, CUR = null, toastTimer = null;
   function snapshot() {
     const m = {};
     document.querySelectorAll('[data-fk]').forEach((el) => (m[el.dataset.fk] = el.textContent));
@@ -1329,6 +1369,7 @@ const DATA = /*__DATA__*/;
     DIMS.forEach((d) => ($('o-' + d.id).textContent = `${S.weights[d.id]} · ${pct(w[d.id])}${S.weights[d.id] !== d.weight ? `（初始 ${d.weight}）` : ''}`));
     const before = booted ? snapshot() : {};
     const R = compute(current());
+    CUR = R;
     renderHero(R);
     renderBoard(R);
     renderMatrix(R);
