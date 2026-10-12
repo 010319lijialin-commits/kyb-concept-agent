@@ -246,7 +246,8 @@ test('同一事实只扣一处：营运资金信号扣「财务与授信」1 分
 test('对每个对手怎么打：按数据定立场，不写死公司名', () => {
   const k = conclusions(run.companies, fw, null, 'conservative', 'changhong');
   const plays = Object.fromEntries(rivalPlays(k, fw, null, 'conservative').map((p) => [p.id, p]));
-  assert.equal(Object.keys(plays).length, 4, '四家对手都有');
+  assert.equal(Object.keys(plays).length, run.companies.length - 1, '每家对手都有');
+  assert.equal(Object.values(plays).filter((p) => p.stance === 'unknown').length, run.companies.filter((c) => c.footprint === 'none').length, '公开信息为零的标为信息不足');
   assert.equal(plays.shoplazza.stance, 'differentiate', '领先我方的是主要对手');
   assert.equal(plays.addragon.stance, 'ally', '客户不弱、资金弱、合规没问题 → 结盟候选');
   assert.equal(plays.ecoglobal.stance, 'watch', '合规附条件的不建议结盟');
@@ -255,6 +256,13 @@ test('对每个对手怎么打：按数据定立场，不写死公司名', () =>
   const renamed = run.companies.map((c) => (c.id === 'addragon' ? { ...c, id: 'x1', short: '某公司' } : c));
   const k2 = conclusions(renamed, fw, null, 'conservative', 'changhong');
   assert.equal(rivalPlays(k2, fw, null, 'conservative').find((p) => p.id === 'x1').stance, 'ally');
+});
+
+test('公开信息为零的公司：查不到的检查项按更低的概率成立', () => {
+  const ghost = { id: 'g', short: 'g', role: 'candidate', footprint: 'none', checks: {}, evidence: [] };
+  const twin = { ...ghost, id: 'h', footprint: undefined };
+  const mc = monteCarlo([ghost, twin], fw, null, { n: 2000 });
+  assert.ok(mc.g.mean < mc.h.mean - 10, `${mc.g.mean} vs ${mc.h.mean}`);
 });
 
 test('层次分析法：一致的判断 CR≈0，权重符合比例', () => {

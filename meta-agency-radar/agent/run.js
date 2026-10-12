@@ -128,7 +128,9 @@ async function onlineRun() {
     const judged = await judgeCompany(r, evidence, fw);
     // 官方名单是 A 级事实，直接覆盖模型对 o3 的判断
     if (meta.ok) judged.checks.o3 = meta.evidence[r.id].listed ? { s: true, ev: [`${r.id}_meta`], note: 'Meta 官网代理商名单可查' } : judged.checks.o3?.s ? judged.checks.o3 : { s: false, ev: [`${r.id}_meta`], note: '不在 Meta 官网代理商名单' };
-    companies.push({ id: r.id, name: r.name, short: r.short, role: r.role, entity_note: r.entity_note || '', levers: r.levers, ...judged, evidence });
+    // 检索后只有官方名单这一条（或什么都没有）：标为「公开信息几乎为零」，概率里用更低的先验
+    const footprint = evidence.filter((e) => e && !String(e.id).endsWith('_meta')).length === 0 ? { footprint: 'none' } : {};
+    companies.push({ id: r.id, name: r.name, short: r.short, role: r.role, entity_note: r.entity_note || '', levers: r.levers, ...footprint, ...judged, evidence });
   }
   return {
     run_id: today,
