@@ -9,7 +9,6 @@ export const DEFAULT_UNCERTAINTY = {
   pB: 0.8, // 只有 B 级证据的检查项，按 80% 概率属实
   pNull: 0.5, // 查不到的检查项，按 50% 概率成立
   pAdverse: 0.25, // 查不到且有不利线索的检查项
-  pNullNoFootprint: 0.2, // 检索过但公开信息几乎为零的公司：查不到的检查项更可能是真的没有
   sigma: 0.25, // 维度权重随机浮动幅度（对数正态）
   sigmaCheck: 0.3, // 检查项分值随机浮动幅度（对数正态，维度内重新归一）
 };
@@ -79,8 +78,8 @@ export function groupedSum(dim, earned) {
 }
 
 // 维度得分：分组折算后再按「全部成立」时的得分换算回满分 5，保证每个维度都是 0–5。
-export function dimRaw(dim, earned, pts = checkPoints(dim), fullSum) {
-  const full = fullSum || groupedSum(dim, pts) || 1;
+export function dimRaw(dim, earned, pts = checkPoints(dim)) {
+  const full = groupedSum(dim, pts) || 1;
   return Math.min(DIM_MAX, (groupedSum(dim, earned) / full) * DIM_MAX);
 }
 
@@ -252,7 +251,6 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
     const g = gatesOf(c, fw, o.asOf);
     return {
       id: c.id,
-      pNull: c.footprint === 'none' ? o.pNullNoFootprint : o.pNull,
       gp: gateP(g.gate_fin.state) * gateP(g.gate_comp.state),
       dims: dims.map((d) => d.checks.map((ch) => {
         const st = checkState(c.checks?.[ch.id], evById, fw);
@@ -274,7 +272,6 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
       for (const id in j) j[id] = (j[id] / s) * DIM_MAX;
       return j;
     });
-    const fulls = pts.map((pp, di) => groupedSum(dims[di], pp)); // 每次抽样只算一次「全部成立」的分
     const alive = [];
     for (const p of prepared) {
       let total = 0;
@@ -284,13 +281,13 @@ export function monteCarlo(companies, fw, weights, opts = {}) {
         for (const ch of checks) {
           let inc = false;
           if (ch.state === 'yes') inc = ch.strong ? true : rnd() < o.pB;
-          else if (ch.state === 'unknown') inc = rnd() < (ch.adverse ? Math.min(o.pAdverse, p.pNull) : p.pNull);
+          else if (ch.state === 'unknown') inc = rnd() < (ch.adverse ? o.pAdverse : o.pNull);
           if (inc) {
             earned[ch.id] = pts[di][ch.id] * ch.f;
             if (ch.strong || ch.state === 'unknown') strong = true;
           }
         }
-        let s = dimRaw(dims[di], earned, pts[di], fulls[di]);
+        let s = dimRaw(dims[di], earned, pts[di]);
         if (!strong && s > cap) s = cap;
         s = Math.max(0, s - p.ded[di]);
         total += (ws[di] / wsum) * s * 20;
@@ -519,8 +516,7 @@ export function rivalPlays(k, fw, weights, mode = 'conservative', mc = null) {
     const financeWeak = pt(r, 'finance') <= pt(me, 'finance') - 1;
     const compOk = !BAD.includes(r.gates.gate_comp?.state);
     let stance;
-    if (r.company.footprint === 'none') stance = 'unknown';
-    else if (gap > 0) stance = 'differentiate';
+    if (gap > 0) stance = 'differentiate';
     else if (clientsOk && financeWeak && compOk) stance = 'ally';
     else stance = 'watch';
     const f = flips(me, r, fw, weights, mode);
@@ -540,14 +536,13 @@ export function diffRuns(prev, curr, fw, weights, mode, opts = {}) {
   const totalDrop = opts.totalDrop ?? 3;
   const prevById = new Map(prev.companies.map((c) => [c.id, c]));
   const alerts = [];
-  const newcomers = [];
   const rows = [];
   for (const c of curr.companies) {
     const p = prevById.get(c.id);
     const now = scoreCompany(c, fw, weights, mode);
     if (!p) {
-      newcomers.push(c.short);
-      rows.push({ id: c.id, status: 'new', after: now.total });
+      alerts.push({ level: 'info', company: c.short, text: `${c.short} 新进入名单，首次评分 ${now.total}` });
+      rows.push({ id: c.id, status: 'new' });
       continue;
     }
     const before = scoreCompany(p, fw, weights, mode);
@@ -591,7 +586,6 @@ export function diffRuns(prev, curr, fw, weights, mode, opts = {}) {
     if (!self && delta <= -totalDrop) alerts.push({ level: 'opportunity', company: c.short, text: `${c.short} 总分下降 ${Math.abs(delta)}（${before.total} → ${now.total}）` });
     rows.push({ id: c.id, status: 'kept', before: before.total, after: now.total, delta });
   }
-  if (newcomers.length) alerts.push({ level: 'info', company: newcomers.length === 1 ? newcomers[0] : '名单', text: newcomers.length <= 3 ? `${newcomers.join('、')} 新进入名单` : `新进入名单 ${newcomers.length} 家：${newcomers.join('、')}` });
   const order = { opportunity: 0, threat: 1, info: 2 };
   alerts.sort((a, b) => order[a.level] - order[b.level]);
   return { rows, alerts };

@@ -5,18 +5,10 @@
       "id": "changhong",
       "name": "长虹佳华控股有限公司",
       "short": "长虹佳华",
-      "aliases": [
-        "长虹佳华",
-        "JiaLink",
-        "佳Link"
-      ],
+      "aliases": ["长虹佳华", "JiaLink", "佳Link"],
       "search_name": "长虹佳华",
       "role": "self",
-      "site_domains": [
-        "changhongit.com",
-        "chitdx-marketing.com",
-        "group.changhong.com"
-      ],
+      "site_domains": ["changhongit.com", "chitdx-marketing.com", "group.changhong.com"],
       "seed_urls": [
         "https://www.changhongit.com/about/356.html",
         "https://www.changhongit.com/news/show-1842.html",
@@ -38,381 +30,41 @@
       "id": "shoplazza",
       "name": "深圳店匠科技有限公司",
       "short": "店匠",
-      "aliases": [
-        "店匠",
-        "Shoplazza",
-        "SHOPLAZZA"
-      ],
+      "aliases": ["店匠", "Shoplazza", "SHOPLAZZA"],
       "search_name": "店匠 Shoplazza",
       "role": "candidate",
-      "site_domains": [
-        "shoplazza.cn",
-        "shoplazza.com"
-      ],
-      "seed_urls": [
-        "https://www.shoplazza.cn/pages/about-us",
-        "https://m.ebrun.com/471366.html",
-        "https://www.sznews.com/news/content/2026-04/17/content_32019045.htm"
-      ]
+      "site_domains": ["shoplazza.cn", "shoplazza.com"],
+      "seed_urls": ["https://www.shoplazza.cn/pages/about-us", "https://m.ebrun.com/471366.html", "https://www.sznews.com/news/content/2026-04/17/content_32019045.htm"]
     },
     {
       "id": "lingtok",
       "name": "青岛领拓跨境电商运营有限公司",
       "short": "领拓",
-      "aliases": [
-        "领拓",
-        "LingTok",
-        "Leadtop"
-      ],
+      "aliases": ["领拓", "LingTok", "Leadtop"],
       "search_name": "领拓 LingTok",
       "role": "candidate",
-      "site_domains": [
-        "lingtok.net",
-        "leadtopmedia.com",
-        "amz123.com/lingtok"
-      ],
-      "seed_urls": [
-        "http://www.lingtok.net/about.html",
-        "https://news.goalfore.cn/latest/detail/71094.html"
-      ]
+      "site_domains": ["lingtok.net", "leadtopmedia.com", "amz123.com/lingtok"],
+      "seed_urls": ["http://www.lingtok.net/about.html", "https://news.goalfore.cn/latest/detail/71094.html"]
     },
     {
       "id": "addragon",
       "name": "厦门龙商网络技术服务有限公司",
       "short": "龙商",
-      "aliases": [
-        "龙商",
-        "AdDragon",
-        "龙赢"
-      ],
+      "aliases": ["龙商", "AdDragon", "龙赢"],
       "search_name": "龙商 AdDragon",
       "role": "candidate",
-      "site_domains": [
-        "xm-ls.com",
-        "amz123.com/addragon"
-      ],
-      "seed_urls": [
-        "https://xm-ls.com/about.html",
-        "https://www.amz123.com/addragon/introduction"
-      ]
+      "site_domains": ["xm-ls.com", "amz123.com/addragon"],
+      "seed_urls": ["https://xm-ls.com/about.html", "https://www.amz123.com/addragon/introduction"]
     },
     {
       "id": "ecoglobal",
       "name": "宜客数字科技(深圳)有限公司",
       "short": "宜客",
-      "aliases": [
-        "宜客",
-        "ECO DIGITAL"
-      ],
+      "aliases": ["宜客", "ECO DIGITAL"],
       "search_name": "宜客数字科技 宜客跨境",
       "role": "candidate",
-      "site_domains": [
-        "ecoglobal.vip"
-      ],
-      "seed_urls": [
-        "https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm",
-        "https://www.shushuqiuzhi.com/article/76445"
-      ]
-    },
-    {
-      "id": "valuebridge",
-      "name": "Value Bridge Technology Co.,Limited",
-      "short": "Value Bridge",
-      "role": "candidate",
-      "aliases": [
-        "Value Bridge"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "aichuang",
-      "name": "爱创广告(深圳)有限公司",
-      "short": "爱创广告",
-      "role": "candidate",
-      "aliases": [
-        "爱创广告"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "xinmidi",
-      "name": "北京新米迪广告有限公司",
-      "short": "新米迪",
-      "role": "candidate",
-      "aliases": [
-        "新米迪"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "feiyu",
-      "name": "广州飞鱼广告传媒有限公司",
-      "short": "飞鱼广告",
-      "role": "candidate",
-      "aliases": [
-        "飞鱼广告"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "milin",
-      "name": "广州密林文化传媒有限公司",
-      "short": "密林文化",
-      "role": "candidate",
-      "aliases": [
-        "密林文化"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "wofan",
-      "name": "广州沃凡数字科技有限公司",
-      "short": "沃凡数字",
-      "role": "candidate",
-      "aliases": [
-        "沃凡数字"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "yangyue",
-      "name": "广州扬悦博众信息科技有限公司",
-      "short": "扬悦博众",
-      "role": "candidate",
-      "aliases": [
-        "扬悦博众"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "yizun",
-      "name": "广州易尊网络科技股份有限公司",
-      "short": "易尊网络",
-      "role": "candidate",
-      "aliases": [
-        "易尊网络"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "zhengjia",
-      "name": "广州正家文化传播有限公司",
-      "short": "正家文化",
-      "role": "candidate",
-      "aliases": [
-        "正家文化"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "fangliang",
-      "name": "杭州放量传媒有限公司",
-      "short": "放量传媒",
-      "role": "candidate",
-      "aliases": [
-        "放量传媒"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "hengren",
-      "name": "杭州恒任网络科技有限公司",
-      "short": "恒任网络",
-      "role": "candidate",
-      "aliases": [
-        "恒任网络"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "kuainiao",
-      "name": "快鸟先飞",
-      "short": "快鸟先飞",
-      "role": "candidate",
-      "aliases": [
-        "快鸟先飞"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "maihao",
-      "name": "脉皓传媒",
-      "short": "脉皓传媒",
-      "role": "candidate",
-      "aliases": [
-        "脉皓传媒"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "xueneng",
-      "name": "南京学能网络科技有限公司",
-      "short": "学能网络",
-      "role": "candidate",
-      "aliases": [
-        "学能网络"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "weishita",
-      "name": "厦门微时塔数字媒体有限公司",
-      "short": "微时塔",
-      "role": "candidate",
-      "aliases": [
-        "微时塔"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "maikesi",
-      "name": "上海麦客斯智能科技有限公司",
-      "short": "麦客斯",
-      "role": "candidate",
-      "aliases": [
-        "麦客斯"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "xiaoniu",
-      "name": "上海小牛畅连数字科技有限公司",
-      "short": "小牛畅连",
-      "role": "candidate",
-      "aliases": [
-        "小牛畅连"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "yike",
-      "name": "深圳市亿科数字科技有限公司",
-      "short": "亿科数字",
-      "role": "candidate",
-      "aliases": [
-        "亿科数字"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "tianzhou",
-      "name": "天舟数字科技（宁波）有限公司",
-      "short": "天舟数字",
-      "role": "candidate",
-      "aliases": [
-        "天舟数字"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "weidao",
-      "name": "位道科技",
-      "short": "位道科技",
-      "role": "candidate",
-      "aliases": [
-        "位道科技"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "wohu",
-      "name": "沃虎科技",
-      "short": "沃虎科技",
-      "role": "candidate",
-      "aliases": [
-        "沃虎科技"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "huayan",
-      "name": "武汉华颜天成科技有限公司",
-      "short": "华颜天成",
-      "role": "candidate",
-      "aliases": [
-        "华颜天成"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "huanqiu",
-      "name": "武汉寰球云联网络科技有限公司",
-      "short": "寰球云联",
-      "role": "candidate",
-      "aliases": [
-        "寰球云联"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "xingpei",
-      "name": "武汉星裴科技有限公司",
-      "short": "星裴科技",
-      "role": "candidate",
-      "aliases": [
-        "星裴科技"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
-    },
-    {
-      "id": "zhongtong",
-      "name": "重庆中通电商通科技有限公司",
-      "short": "中通电商通",
-      "role": "candidate",
-      "aliases": [
-        "中通电商通"
-      ],
-      "site_domains": [],
-      "seed_urls": [],
-      "source": "用户提供的名单（2026-10-12）"
+      "site_domains": ["ecoglobal.vip"],
+      "seed_urls": ["https://www.zhaopin.com/companydetail/9144KJ1ERW5VQANEY0.htm", "https://www.shushuqiuzhi.com/article/76445"]
     }
   ]
 }
