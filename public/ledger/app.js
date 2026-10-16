@@ -160,6 +160,28 @@ function salePill(s) {
   if (s.settled > 0) return `<span class="pill part">还欠 ${y(s.outstanding)}</span>`;
   return '<span class="pill open">未回款</span>';
 }
+// 列表里一句话说清这笔钱分到了哪几批：「9-02 甲 回清 · 9-04 甲 回一部分 ¥200」
+function batchSummary(allocs, byId, key, words) {
+  const parts = (allocs || []).map((a) => {
+    const b = byId.get(a[key]);
+    if (!b) return '已删除的一批';
+    const c = toCents(a.amount);
+    return `${b.date.slice(5)} ${esc(b.product)} ${c >= b.total ? words.full : `${words.part} ${y(c)}`}`;
+  });
+  if (!parts.length) return '没分到货上';
+  return parts.length > 3 ? `${parts.slice(0, 3).join(' · ')} 等 ${parts.length} 批` : parts.join(' · ');
+}
+
+// 某一批货被哪几笔钱回过 / 付过（销售、进货的编辑页里看）
+function batchHistory(list, key, id, label) {
+  const hits = list.filter((x) => (x.allocations || []).some((a) => a[key] === id));
+  if (!hits.length) return '';
+  return `<div class="hist"><div class="lbl">${label}</div>${hits.sort((a, b) => (a.date < b.date ? -1 : 1)).map((x) => {
+    const a = x.allocations.find((z) => z[key] === id);
+    return `<div class="ln"><span>${esc(x.date)} ${acctPill(x.account)}${x.allocations.length > 1 ? ` <span class="muted small">（这笔一共 ${yy(x.amount)}，分了 ${x.allocations.length} 批）</span>` : ''}</span><span class="num">${yy(a.amount)}</span></div>`;
+  }).join('')}</div>`;
+}
+
 function purchasePill(p) {
   if (p.outstanding <= 0) return '<span class="pill done">已付清</span>';
   if (p.paid > 0) return `<span class="pill part">还欠 ${y(p.outstanding)}</span>`;
@@ -295,13 +317,12 @@ function renderCash() {
     const owing = R.customers.filter((c) => c.outstanding > 0);
     const items = [...state.receipts].sort(byDateDesc).map((r0) => {
       const r = R.receipts.get(r0.id);
-      const n = (r0.allocations || []).length;
       const sub = r0.account === ACCOUNT.PERSONAL
         ? `核销 ${y(r.grossC)} · 扣税 ${y(r.taxC)}`
         : `扣税 ${y(r.taxC)} · 算你的 ${y(r.mineC)}${r.unallocated ? ` · <span style="color:var(--warn)">${y(r.unallocated)} 没对上销售</span>` : ''}`;
       return { date: r0.date, html: `
         <li class="item" data-edit="receipt" data-id="${r0.id}">
-          <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${sub} · ${n > 1 ? `合并 ${n} 笔销售` : n === 1 ? '1 笔销售' : '未核销'}${r0.note ? ' · ' + esc(r0.note) : ''}</div></div>
+          <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${batchSummary(r0.allocations, R.salesById, 'saleId', RECEIPT_WORDS)}</div><div class="s">${sub}${r0.note ? ' · ' + esc(r0.note) : ''}</div></div>
           <div class="r"><div class="amt num in">+${fmt(r.amountC)}</div><div class="s">到账</div></div>
         </li>` };
     });
@@ -319,11 +340,10 @@ function renderCash() {
     const oweUp = R.suppliers.filter((c) => c.outstanding > 0);
     const items = [...(state.payments || [])].sort(byDateDesc).map((p0) => {
       const p = R.payments.get(p0.id);
-      const n = (p0.allocations || []).length;
-      const extra = p.amountC > p.allocatedC ? ` · <span style="color:var(--warn)">${y(p.amountC - p.allocatedC)} 没对上进货</span>` : '';
+      const extra = p.amountC > p.allocatedC ? `<div class="s" style="color:var(--warn)">${y(p.amountC - p.allocatedC)} 没分到货上</div>` : '';
       return { date: p0.date, html: `
         <li class="item" data-edit="payment" data-id="${p0.id}">
-          <div class="l"><div class="t">${esc(p0.supplier)} ${acctPill(p0.account)}</div><div class="s">${n > 1 ? `合并付 ${n} 笔进货` : n === 1 ? '付 1 笔进货' : '未核销'}${extra}${p0.note ? ' · ' + esc(p0.note) : ''}</div></div>
+          <div class="l"><div class="t">${esc(p0.supplier)} ${acctPill(p0.account)}</div><div class="s">${batchSummary(p0.allocations, R.purchasesById, 'purchaseId', PAYMENT_WORDS)}${p0.note ? ' · ' + esc(p0.note) : ''}</div>${extra}</div>
           <div class="r"><div class="amt num">−${fmt(p.amountC)}</div><div class="s">打出</div></div>
         </li>` };
     });
@@ -562,6 +582,7 @@ function tradeFields(kind, rec) {
     ${kind === 'sale' ? `<div class="f"><label>这批货的进价（元/件） <span class="tip">默认填该品种平均进价，用来算差价税</span></label>
       <input class="inp" type="number" inputmode="decimal" step="0.0001" id="f-cost" value="${rec?.cost ?? ''}"></div>` : ''}
     <div class="calc" id="f-calc"></div>
+    ${rec ? (kind === 'sale' ? batchHistory(state.receipts, 'saleId', rec.id, '这批货的回款') : batchHistory(state.payments || [], 'purchaseId', rec.id, '这批货的付款')) : ''}
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}" placeholder="批号、票号…"></div>
     <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
     ${datalist('dl-party', parties)}${datalist('dl-prod', products)}`;
@@ -651,11 +672,82 @@ function saleForm(rec) {
   });
 }
 
+// ---------- 一笔钱分到多批货 ----------
+// 回款分到销售、付款分到进货共用这一套。一笔钱可以：回清几批、只回某一批的一部分、
+// 回清几批再加一批的一部分，也可以跳着挑。每批一行，金额能手改，也能点「全额 / 补剩下的 / 不回」。
+function allocEditor(box, { words, restFor, onChange }) {
+  let rows = [];
+  const input = (id) => box.querySelector(`[data-aid="${id}"]`);
+  const value = (id) => toCents(input(id)?.value);
+
+  function status(row) {
+    const el = box.querySelector(`[data-st="${row.id}"]`);
+    if (!el) return;
+    const v = value(row.id);
+    const qty = row.unit > 0 && v > 0 ? `，约 ${+(v / row.unit).toFixed(2)} 件` : '';
+    let t, c;
+    if (!v) { t = `${words.none} · 还欠 ${y(row.outstanding)}`; c = 'muted'; }
+    else if (v === row.outstanding) { t = `${words.full}${qty}`; c = 'ok'; }
+    else if (v < row.outstanding) { t = `${words.part}${qty}，之后还欠 ${y(row.outstanding - v)}`; c = 'warn'; }
+    else { t = `超过欠款 ${y(v - row.outstanding)}`; c = 'bad'; }
+    el.textContent = t;
+    el.className = 'alloc-st ' + c;
+  }
+
+  box.addEventListener('input', (e) => {
+    const i = e.target.closest('[data-aid]');
+    if (!i) return;
+    status(rows.find((r) => r.id === i.dataset.aid));
+    onChange();
+  });
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fill]');
+    if (!b) return;
+    const row = rows.find((r) => r.id === b.closest('[data-row]').dataset.row);
+    const v = b.dataset.fill === 'full' ? row.outstanding
+      : b.dataset.fill === 'none' ? 0
+      : Math.max(0, Math.min(row.outstanding, restFor(row.id)));
+    input(row.id).value = v ? toYuan(v) : '';
+    status(row);
+    onChange();
+  });
+
+  return {
+    render(list, preset, emptyText) {
+      rows = list;
+      box.innerHTML = rows.length ? rows.map((r) => `
+        <div class="alloc-row" data-row="${r.id}">
+          <div><div>${esc(r.title)}</div><div class="s">${r.sub}</div></div>
+          <input class="inp sm num" type="number" inputmode="decimal" step="0.01" data-aid="${r.id}" value="${preset.get(r.id) ?? ''}" placeholder="0" aria-label="${esc(r.title)} 这次分多少">
+          <div class="alloc-foot">
+            <span class="alloc-st" data-st="${r.id}"></span>
+            <span class="chips"><button type="button" data-fill="full">全额</button><button type="button" data-fill="rest">补剩下的</button><button type="button" data-fill="none">${words.noneBtn}</button></span>
+          </div>
+        </div>`).join('') : `<div class="empty">${emptyText}</div>`;
+      rows.forEach(status);
+    },
+    rows: () => rows,
+    lines: () => rows.map((r) => ({ ...r, cents: value(r.id) })),
+  };
+}
+
+// 分配结果的一句话总结：分到几批、几批回清、几批回一部分
+function allocHeadline(lines, words) {
+  const used = lines.filter((l) => l.cents > 0);
+  const full = used.filter((l) => l.cents === l.outstanding).length;
+  const part = used.filter((l) => l.cents < l.outstanding).length;
+  if (!used.length) return '还没分到任何一批';
+  return `分到 ${used.length} 批：${full ? `${full} 批${words.full}` : ''}${full && part ? '，' : ''}${part ? `${part} 批${words.part}` : ''}`;
+}
+
+const RECEIPT_WORDS = { full: '回清', part: '回一部分', none: '这次不回', noneBtn: '不回' };
+const PAYMENT_WORDS = { full: '付清', part: '付一部分', none: '这次不付', noneBtn: '不付' };
+
 // ---------- 回款 ----------
 function receiptForm(rec, presetCustomer) {
   let account = rec?.account || ACCOUNT.COMPANY;
   let customer = rec?.customer || presetCustomer || '';
-  let alloc = new Map((rec?.allocations || []).map((a) => [a.saleId, a.amount]));
+  let preset = new Map((rec?.allocations || []).map((a) => [a.saleId, a.amount]));
   const customers = names(state.sales, 'customer');
 
   openSheet(rec ? '改回款' : '记回款', `
@@ -666,95 +758,99 @@ function receiptForm(rec, presetCustomer) {
     <div class="f"><label>回到哪个账户</label>
       <div class="acct">
         <button type="button" data-v="company"><b>公司账户</b><small>全额到账<br>扣完税的算你的</small></button>
-        <button type="button" data-v="personal"><b>个人账户</b><small>到账的已经是<br>扣完增值税的钱</small></button>
+        <button type="button" data-v="personal"><b>个人账户</b><small>到账的已经是<br>扣完税的钱</small></button>
       </div></div>
     <div class="f"><label>实际到账金额（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-amt" value="${rec?.amount ?? ''}" placeholder="银行里看到的数"></div>
-    <div class="lbl" style="display:flex;justify-content:space-between;align-items:center">核销哪几笔销售 <button class="btn sm" type="button" id="f-auto">按到账自动分</button></div>
+    <div class="lbl alloc-hd">回的是哪几批货 <button class="btn sm" type="button" id="f-auto">从最早的开始分</button></div>
+    <p class="hint" style="margin:-2px 0 8px">可以回清几批、某批只回一部分，也可以跳着挑。每批金额能直接改。</p>
     <div class="alloc" id="f-alloc"></div>
     <div class="calc" id="f-calc"></div>
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
     <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
     ${datalist('dl-cust', customers)}`, (root) => {
 
-    const amount = () => num(root, '#f-amt') || 0;
+    const amount = () => toCents(num(root, '#f-amt') || 0);
     const rates = saleRates(state);
+    const keep = rec?.customer === customer ? (rec.allocations || []).map((a) => a.saleId) : [];
+
+    const ed = allocEditor($('#f-alloc', root), {
+      words: RECEIPT_WORDS,
+      onChange: () => paintCalc(),
+      // 「补剩下的」：到账还没分出去的部分，全给这一批（个人账户按这批的税负换算成应收）
+      restFor: (id) => {
+        const others = ed.lines().filter((l) => l.id !== id);
+        if (account === ACCOUNT.PERSONAL) {
+          const usedNet = others.reduce((s, l) => s + l.cents - Math.round(l.cents * l.rate), 0);
+          return Math.round((amount() - usedNet) / (1 - ed.rows().find((r) => r.id === id).rate));
+        }
+        return amount() - others.reduce((s, l) => s + l.cents, 0);
+      },
+    });
 
     const paintAcct = () => root.querySelectorAll('.acct button').forEach((b) => b.classList.toggle('on', b.dataset.v === account));
 
     const paintAlloc = () => {
-      const open = customer ? openSalesFor(state, customer, rec?.id) : [];
-      // 编辑时，已核销过但现在不在"未回清"列表里的销售也要显示
-      const ids = new Set(open.map((o) => o.sale.id));
-      const extra = [...alloc.keys()].filter((id) => !ids.has(id)).map((id) => state.sales.find((s) => s.id === id)).filter(Boolean)
-        .map((s) => ({ sale: s, outstanding: toCents(saleAmount(s)) }));
-      const rows = [...open, ...extra];
-      $('#f-alloc', root).innerHTML = rows.length ? rows.map((o) => `
-        <div class="alloc-row">
-          <div><div>${esc(o.sale.date)} ${esc(o.sale.product)} ${o.sale.qty}×${o.sale.price}</div><div class="s">还欠 ${y(o.outstanding)} · 进价 ${+rates.get(o.sale.id).cost.toFixed(4)}，税负 ${pct(rates.get(o.sale.id).rate)}</div></div>
-          <input class="inp sm num" type="number" inputmode="decimal" step="0.01" data-sale="${o.sale.id}" data-max="${o.outstanding}" data-rate="${rates.get(o.sale.id).rate}" value="${alloc.get(o.sale.id) ?? ''}" placeholder="0">
-        </div>`).join('') : `<div class="empty">${customer ? '这家没有未回清的销售' : '先填是哪家回的'}</div>`;
+      const open = customer ? openSalesFor(state, customer, rec?.id, keep) : [];
+      ed.render(open.map((o) => ({
+        id: o.sale.id,
+        title: `${o.sale.date} ${o.sale.product} ${o.sale.qty}件 × ${o.sale.price}`,
+        sub: `这批 ${y(o.total)}${o.settled ? `，别的回款已回 ${y(o.settled)}` : ''} · 税负 ${pct(o.rate)}`,
+        outstanding: o.outstanding,
+        rate: o.rate,
+        unit: toCents(o.sale.price),
+      })), preset, customer ? '这家没有没回清的货' : '先填是哪家回的');
       paintCalc();
     };
 
     const paintCalc = () => {
-      let gross = 0, ruleTax = 0, over = false;
-      root.querySelectorAll('[data-sale]').forEach((i) => {
-        const c = toCents(i.value);
-        if (c > Number(i.dataset.max)) over = true;
-        gross += c;
-        ruleTax += Math.round(c * Number(i.dataset.rate));
-      });
-      const amt = toCents(amount());
-      let html = `<div class="ln"><span>核销应收合计</span><span class="num">${y(gross)}</span></div>`;
+      const lines = ed.lines();
+      const gross = lines.reduce((s, l) => s + l.cents, 0);
+      const ruleTax = lines.reduce((s, l) => s + Math.round(l.cents * l.rate), 0);
+      const over = lines.some((l) => l.cents > l.outstanding);
+      const amt = amount();
+      let html = `<div class="ln"><span>${allocHeadline(lines, RECEIPT_WORDS)}</span><span class="num">${y(gross)}</span></div>`;
       if (account === ACCOUNT.PERSONAL) {
-        const tax = gross - amt;
-        html += `<div class="ln"><span>到账</span><span class="num">${y(amt)}</span></div>
-          <div class="ln total"><span>其中被扣的税</span><span class="num">${y(Math.max(0, tax))}</span></div>`;
-        if (gross && Math.abs(gross - ruleTax - amt) > 100) html += `<div class="ln warn"><span>按规则应扣 ${y(ruleTax)}、到账 ${y(gross - ruleTax)}，和实际差 ${y(Math.abs(gross - ruleTax - amt))}</span></div>`;
+        const expected = gross - ruleTax;
+        html += `<div class="ln"><span>按规则扣税 ${y(ruleTax)}，应到账</span><span class="num">${y(expected)}</span></div>
+          <div class="ln total"><span>实际到账</span><span class="num">${y(amt)}</span></div>`;
+        if (amt && expected - amt > 100) html += `<div class="ln warn"><span>分多了：按分的这些应到账 ${y(expected)}，比实际多 ${y(expected - amt)}</span></div>`;
+        else if (amt && amt - expected > 100) html += `<div class="ln warn"><span>还有约 ${y(amt - expected)} 到账没分到货上</span></div>`;
       } else {
         html += `<div class="ln"><span>到账</span><span class="num">${y(amt)}</span></div>
           <div class="ln"><span>按规则扣税</span><span class="num">−${fmt(ruleTax)}</span></div>
           <div class="ln total"><span>算你在公司的钱</span><span class="num">${y(amt - ruleTax)}</span></div>`;
-        if (gross !== amt && amt) html += `<div class="ln warn"><span>${gross < amt ? `有 ${y(amt - gross)} 没对上销售（多付 / 预付？）` : `核销比到账多 ${y(gross - amt)}`}</span></div>`;
+        if (amt && gross < amt) html += `<div class="ln warn"><span>还有 ${y(amt - gross)} 没分到货上（多付 / 预付？没分的按这家平均税负扣税）</span></div>`;
+        if (amt && gross > amt) html += `<div class="ln warn"><span>分多了 ${y(gross - amt)}，比到账还多</span></div>`;
       }
-      if (over) html += '<div class="ln bad"><span>有一笔核销超过了它的欠款</span></div>';
+      if (over) html += '<div class="ln bad"><span>有一批分的钱超过了它的欠款</span></div>';
       $('#f-calc', root).innerHTML = html;
     };
 
     const auto = () => {
       const fn = account === ACCOUNT.PERSONAL ? autoAllocateNet : autoAllocate;
-      alloc = new Map(fn(state, customer, amount(), rec?.id).map((a) => [a.saleId, a.amount]));
+      preset = new Map(fn(state, customer, toYuan(amount()), rec?.id).map((a) => [a.saleId, a.amount]));
       paintAlloc();
     };
 
     paintAcct(); paintAlloc();
 
     root.querySelectorAll('.acct button').forEach((b) => (b.onclick = () => { account = b.dataset.v; paintAcct(); if (amount()) auto(); else paintCalc(); }));
-    $('#f-cust', root).addEventListener('change', (e) => { customer = e.target.value.trim(); alloc = new Map(); if (amount()) auto(); else paintAlloc(); });
-    $('#f-amt', root).addEventListener('input', () => auto());
+    $('#f-cust', root).addEventListener('change', (e) => { customer = e.target.value.trim(); preset = new Map(); if (amount()) auto(); else paintAlloc(); });
+    $('#f-amt', root).addEventListener('input', auto);
     $('#f-auto', root).onclick = auto;
-    $('#f-alloc', root).addEventListener('input', (e) => {
-      const i = e.target.closest('[data-sale]');
-      if (i) { alloc.set(i.dataset.sale, i.value === '' ? undefined : parseFloat(i.value)); paintCalc(); }
-    });
 
     $('#f-save', root).onclick = () => {
       customer = $('#f-cust', root).value.trim();
-      const allocations = [];
-      let over = false;
-      root.querySelectorAll('[data-sale]').forEach((i) => {
-        const c = toCents(i.value);
-        if (c > Number(i.dataset.max)) over = true;
-        if (c > 0) allocations.push({ saleId: i.dataset.sale, amount: toYuan(c) });
-      });
-      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, customer, account, amount: amount(), allocations, note: $('#f-note', root).value.trim() };
+      const lines = ed.lines();
+      const allocations = lines.filter((l) => l.cents > 0).map((l) => ({ saleId: l.id, amount: toYuan(l.cents) }));
+      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, customer, account, amount: toYuan(amount()), allocations, note: $('#f-note', root).value.trim() };
       if (!r.date || !r.customer || !(r.amount > 0)) return toast('日期、哪家、到账金额要填');
-      if (over) return toast('有一笔核销超过了它的欠款');
-      if (r.account === ACCOUNT.PERSONAL && toCents(receiptGross(r)) < toCents(r.amount)) return toast('个人账户到账比核销还多？核对一下金额');
+      if (lines.some((l) => l.cents > l.outstanding)) return toast('有一批分的钱超过了它的欠款');
+      if (r.account === ACCOUNT.PERSONAL && toCents(receiptGross(r)) < toCents(r.amount)) return toast('个人账户到账比分到货上的还多？核对一下');
       upsert(state.receipts, r); save(); closeSheet();
-      toast(r.allocations.length > 1 ? `已记回款，合并核销 ${r.allocations.length} 笔销售` : '已记回款');
+      toast(allocations.length > 1 ? `已记回款：${allocHeadline(lines, RECEIPT_WORDS)}` : '已记回款');
     };
-    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔回款？后面的扣税、提现会自动重算。', '删除', true)) { remove(state.receipts, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔回款？对应几批货会变回没回款。', '删除', true)) { remove(state.receipts, rec.id); save(); closeSheet(); } };
   });
 }
 
@@ -762,7 +858,7 @@ function receiptForm(rec, presetCustomer) {
 function paymentForm(rec, presetSupplier) {
   let account = rec?.account || ACCOUNT.PERSONAL;
   let supplier = rec?.supplier || presetSupplier || '';
-  let alloc = new Map((rec?.allocations || []).map((a) => [a.purchaseId, a.amount]));
+  let preset = new Map((rec?.allocations || []).map((a) => [a.purchaseId, a.amount]));
   if (!state.payments) state.payments = [];
   const others = { ...state, payments: state.payments.filter((x) => x.id !== rec?.id) };
 
@@ -777,81 +873,73 @@ function paymentForm(rec, presetSupplier) {
         <button type="button" data-v="company"><b>公司账户</b><small>从公司账上付<br>扣你在公司的钱</small></button>
       </div></div>
     <div class="f"><label>打出金额（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-amt" value="${rec?.amount ?? ''}"></div>
-    <div class="lbl" style="display:flex;justify-content:space-between;align-items:center">付的是哪几笔进货 <button class="btn sm" type="button" id="f-auto">按金额自动分</button></div>
+    <div class="lbl alloc-hd">付的是哪几批货 <button class="btn sm" type="button" id="f-auto">从最早的开始分</button></div>
+    <p class="hint" style="margin:-2px 0 8px">可以付清几批、某批只付一部分，也可以跳着挑。</p>
     <div class="alloc" id="f-alloc"></div>
     <div class="calc" id="f-calc"></div>
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
     <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
     ${datalist('dl-sup', names(state.purchases, 'supplier'))}`, (root) => {
 
-    const amount = () => num(root, '#f-amt') || 0;
+    const amount = () => toCents(num(root, '#f-amt') || 0);
+    const keep = rec?.supplier === supplier ? (rec.allocations || []).map((a) => a.purchaseId) : [];
+    const ed = allocEditor($('#f-alloc', root), {
+      words: PAYMENT_WORDS,
+      onChange: () => paintCalc(),
+      restFor: (id) => amount() - ed.lines().filter((l) => l.id !== id).reduce((s, l) => s + l.cents, 0),
+    });
     const paintAcct = () => root.querySelectorAll('.acct button').forEach((b) => b.classList.toggle('on', b.dataset.v === account));
 
     const paintAlloc = () => {
-      const open = supplier ? openPurchasesFor(state, supplier, rec?.id) : [];
-      const ids = new Set(open.map((o) => o.purchase.id));
-      const extra = [...alloc.keys()].filter((id) => !ids.has(id)).map((id) => state.purchases.find((p) => p.id === id)).filter(Boolean)
-        .map((p) => ({ purchase: p, outstanding: toCents(purchaseAmount(p)) }));
-      const rows = [...open, ...extra];
-      $('#f-alloc', root).innerHTML = rows.length ? rows.map((o) => `
-        <div class="alloc-row">
-          <div><div>${esc(o.purchase.date)} ${esc(o.purchase.product)} ${o.purchase.qty}×${o.purchase.price}</div><div class="s">还欠 ${y(o.outstanding)}</div></div>
-          <input class="inp sm num" type="number" inputmode="decimal" step="0.01" data-pur="${o.purchase.id}" data-max="${o.outstanding}" value="${alloc.get(o.purchase.id) ?? ''}" placeholder="0">
-        </div>`).join('') : `<div class="empty">${supplier ? '欠这家的货款都付清了' : '先填打给哪家'}</div>`;
+      const open = supplier ? openPurchasesFor(state, supplier, rec?.id, keep) : [];
+      ed.render(open.map((o) => ({
+        id: o.purchase.id,
+        title: `${o.purchase.date} ${o.purchase.product} ${o.purchase.qty}件 × ${o.purchase.price}`,
+        sub: `这批 ${y(o.total)}${o.paid ? `，别的付款已付 ${y(o.paid)}` : ''}`,
+        outstanding: o.outstanding,
+        unit: toCents(o.purchase.price),
+      })), preset, supplier ? '欠这家的货款都付清了' : '先填打给哪家');
       paintCalc();
     };
 
-    const collect = () => {
-      let sum = 0, over = false;
-      const allocations = [];
-      root.querySelectorAll('[data-pur]').forEach((i) => {
-        const c = toCents(i.value);
-        if (c > Number(i.dataset.max)) over = true;
-        sum += c;
-        if (c > 0) allocations.push({ purchaseId: i.dataset.pur, amount: toYuan(c) });
-      });
-      return { sum, over, allocations };
-    };
-
     const paintCalc = () => {
-      const { sum, over } = collect();
-      const amt = toCents(amount());
-      let html = `<div class="ln"><span>付掉的货款合计</span><span class="num">${y(sum)}</span></div>`;
-      if (sum !== amt && amt) html += `<div class="ln warn"><span>${sum < amt ? `有 ${y(amt - sum)} 没对上进货（预付？）` : `核销比打出的钱多 ${y(sum - amt)}`}</span></div>`;
+      const lines = ed.lines();
+      const sum = lines.reduce((s, l) => s + l.cents, 0);
+      const amt = amount();
+      let html = `<div class="ln"><span>${allocHeadline(lines, PAYMENT_WORDS)}</span><span class="num">${y(sum)}</span></div>`;
+      if (amt && sum < amt) html += `<div class="ln warn"><span>还有 ${y(amt - sum)} 没分到货上（预付？）</span></div>`;
+      if (amt && sum > amt) html += `<div class="ln warn"><span>分多了 ${y(sum - amt)}，比打出的钱还多</span></div>`;
       if (account === ACCOUNT.COMPANY && amt) {
-        const p = previewPayment(others, { date: $('#f-date', root).value || today(), supplier, account, amount: amount(), allocations: [] });
+        const p = previewPayment(others, { date: $('#f-date', root).value || today(), supplier, account, amount: toYuan(amt), allocations: [] });
         html += `<div class="ln"><span>付之前你在公司有</span><span class="num">${y(p.before)}</span></div>
           <div class="ln total"><span>付完还剩</span><span class="num">${y(p.before - p.amountC)}</span></div>`;
         if (p.over > 0) html += `<div class="ln warn"><span>比你在公司的钱多 ${y(p.over)}，相当于先占用了公司的钱</span></div>`;
       }
-      if (over) html += '<div class="ln bad"><span>有一笔付款超过了它的欠款</span></div>';
+      if (lines.some((l) => l.cents > l.outstanding)) html += '<div class="ln bad"><span>有一批分的钱超过了它的欠款</span></div>';
       $('#f-calc', root).innerHTML = html;
     };
 
     const auto = () => {
-      alloc = new Map(autoAllocatePayment(state, supplier, amount(), rec?.id).map((a) => [a.purchaseId, a.amount]));
+      preset = new Map(autoAllocatePayment(state, supplier, toYuan(amount()), rec?.id).map((a) => [a.purchaseId, a.amount]));
       paintAlloc();
     };
 
     paintAcct(); paintAlloc();
     root.querySelectorAll('.acct button').forEach((b) => (b.onclick = () => { account = b.dataset.v; paintAcct(); paintCalc(); }));
-    $('#f-sup', root).addEventListener('change', (e) => { supplier = e.target.value.trim(); alloc = new Map(); if (amount()) auto(); else paintAlloc(); });
+    $('#f-sup', root).addEventListener('change', (e) => { supplier = e.target.value.trim(); preset = new Map(); if (amount()) auto(); else paintAlloc(); });
     $('#f-amt', root).addEventListener('input', auto);
     $('#f-date', root).addEventListener('input', paintCalc);
     $('#f-auto', root).onclick = auto;
-    $('#f-alloc', root).addEventListener('input', (e) => {
-      const i = e.target.closest('[data-pur]');
-      if (i) { alloc.set(i.dataset.pur, i.value === '' ? undefined : parseFloat(i.value)); paintCalc(); }
-    });
 
     $('#f-save', root).onclick = () => {
       supplier = $('#f-sup', root).value.trim();
-      const { over, allocations } = collect();
-      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier, account, amount: amount(), allocations, note: $('#f-note', root).value.trim() };
+      const lines = ed.lines();
+      const allocations = lines.filter((l) => l.cents > 0).map((l) => ({ purchaseId: l.id, amount: toYuan(l.cents) }));
+      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier, account, amount: toYuan(amount()), allocations, note: $('#f-note', root).value.trim() };
       if (!r.date || !r.supplier || !(r.amount > 0)) return toast('日期、打给哪家、金额要填');
-      if (over) return toast('有一笔付款超过了它的欠款');
+      if (lines.some((l) => l.cents > l.outstanding)) return toast('有一批分的钱超过了它的欠款');
       upsert(state.payments, r); save(); closeSheet();
-      toast(r.allocations.length > 1 ? `已记付款，合并付了 ${r.allocations.length} 笔进货` : '已记付款');
+      toast(allocations.length > 1 ? `已记付款：${allocHeadline(lines, PAYMENT_WORDS)}` : '已记付款');
     };
     if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔付款？', '删除', true)) { remove(state.payments, rec.id); save(); closeSheet(); } };
   });

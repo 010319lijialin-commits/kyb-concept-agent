@@ -231,3 +231,19 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .hero-top > div { min-width: 0; }
 .hero .btn.hero-btn { flex: none; background: var(--hero-fg); color: var(--hero-bg); border-color: transparent; font-weight: 600; margin-top: 2px; }
 .amt.in { color: var(--good); }
+
+/* 一笔钱分到多批货 */
+.alloc-hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.alloc-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: -2px; }
+.alloc-st { font-size: 12px; }
+.alloc-st.muted { color: var(--muted); }
+.alloc-st.ok { color: var(--accent); font-weight: 600; }
+.alloc-st.warn { color: var(--warn); }
+.alloc-st.bad { color: var(--danger); font-weight: 600; }
+.chips { display: inline-flex; gap: 6px; }
+.chips button { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 99px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.chips button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hist { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.hist .lbl { margin-bottom: 4px; }
+.hist .ln { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+.hint { font-size: 12px; color: var(--muted); }

@@ -135,3 +135,50 @@ test('老数据里的月度扣税记录被忽略，不影响余额', () => {
   s.taxRuns = [{ id: 't1', date: '2026-10-08', cutoff: '2026-09-30' }];
   assert.equal(y(compute(s).totals.companyBalance), 284);
 });
+
+// ---------- 一笔回款对多批货 ----------
+
+function threeBatches() {
+  const s = emptyState();
+  s.purchases.push({ id: 'p1', date: '2026-09-01', supplier: '上游A', product: '甲', qty: 1000, price: 1 });
+  s.sales.push({ id: 'a', date: '2026-09-02', customer: '下游C', product: '甲', qty: 100, price: 1.5, cost: 1 }); // 150
+  s.sales.push({ id: 'b', date: '2026-09-03', customer: '下游C', product: '甲', qty: 200, price: 1.5, cost: 1 }); // 300
+  s.sales.push({ id: 'c', date: '2026-09-04', customer: '下游C', product: '甲', qty: 300, price: 2, cost: 1 });   // 600
+  return s;
+}
+
+test('一次回完整两批 + 第三批的一部分（先进先出）', () => {
+  const s = threeBatches();
+  const alloc = autoAllocate(s, '下游C', 650);
+  assert.deepEqual(alloc, [{ saleId: 'a', amount: 150 }, { saleId: 'b', amount: 300 }, { saleId: 'c', amount: 200 }]);
+  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 650, allocations: alloc });
+  const r = compute(s);
+  assert.equal(y(r.salesById.get('a').outstanding), 0);
+  assert.equal(y(r.salesById.get('b').outstanding), 0);
+  assert.equal(y(r.salesById.get('c').outstanding), 400);
+  // 税：甲 450 → 4.5 + 150×13% = 24；乙那 200 → 2 + 100×13% = 15（按回了的比例）
+  assert.equal(y(r.receipts.get('r1').taxC), 24 + 15);
+  // 剩下 400 下次回，税 4 + 200×13% = 30，合计正好等于三批全回的税
+  s.receipts.push({ id: 'r2', date: '2026-09-20', customer: '下游C', account: 'company', amount: 400, allocations: autoAllocate(s, '下游C', 400) });
+  const r2 = compute(s);
+  assert.equal(y(r2.receipts.get('r2').taxC), 30);
+  assert.equal(y(r2.totals.companyTax), [...r2.sales].reduce((t, x) => t + x.taxFull, 0) / 100);
+});
+
+test('跳着挑：第一批全额、第二批不回、第三批回一部分', () => {
+  const s = threeBatches();
+  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 450, allocations: [{ saleId: 'a', amount: 150 }, { saleId: 'c', amount: 300 }] });
+  const r = compute(s);
+  assert.equal(y(r.salesById.get('a').outstanding), 0);
+  assert.equal(y(r.salesById.get('b').outstanding), 300);
+  assert.equal(y(r.salesById.get('c').outstanding), 300);
+  // 再来一笔自动分：先补第二批，再补第三批剩下的
+  assert.deepEqual(autoAllocate(s, '下游C', 500), [{ saleId: 'b', amount: 300 }, { saleId: 'c', amount: 200 }]);
+});
+
+test('回到个人账户：多批合并、最后一批只回一部分，按各批税负反推', () => {
+  const s = threeBatches();
+  // a 全回到账 150−8=142，b 全回 300−16=284，c 回 200 应收：税 2+100×13%=15 → 到账 185
+  const alloc = autoAllocateNet(s, '下游C', 142 + 284 + 185);
+  assert.deepEqual(alloc, [{ saleId: 'a', amount: 150 }, { saleId: 'b', amount: 300 }, { saleId: 'c', amount: 200 }]);
+});

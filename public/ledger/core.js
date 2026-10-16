@@ -102,8 +102,8 @@ function settledBySale(state, excludeReceiptId) {
   return m;
 }
 
-// 某个下游的未回清销售，按日期先后排
-export function openSalesFor(state, customer, excludeReceiptId) {
+// 某个下游的未回清销售，按日期先后排；keepIds 里的即使已回清也留着（改旧回款时要显示它原来分到的批次）
+export function openSalesFor(state, customer, excludeReceiptId, keepIds = []) {
   const settled = settledBySale(state, excludeReceiptId);
   const rates = saleRates(state);
   return state.sales
@@ -113,7 +113,7 @@ export function openSalesFor(state, customer, excludeReceiptId) {
       const done = settled.get(s.id) || 0;
       return { sale: s, total, settled: done, outstanding: total - done, rate: rates.get(s.id).rate };
     })
-    .filter((x) => x.outstanding > 0)
+    .filter((x) => x.outstanding > 0 || keepIds.includes(x.sale.id))
     .sort((a, b) => cmp(a.sale.date, b.sale.date) || cmp(a.sale.id, b.sale.id));
 }
 
@@ -164,8 +164,8 @@ function paidByPurchase(state, excludePaymentId) {
   return m;
 }
 
-// 某个上游还没付清的进货，按日期先后排
-export function openPurchasesFor(state, supplier, excludePaymentId) {
+// 某个上游还没付清的进货，按日期先后排；keepIds 同上
+export function openPurchasesFor(state, supplier, excludePaymentId, keepIds = []) {
   const paid = paidByPurchase(state, excludePaymentId);
   return state.purchases
     .filter((p) => p.supplier === supplier)
@@ -174,7 +174,7 @@ export function openPurchasesFor(state, supplier, excludePaymentId) {
       const done = paid.get(p.id) || 0;
       return { purchase: p, total, paid: done, outstanding: total - done };
     })
-    .filter((x) => x.outstanding > 0)
+    .filter((x) => x.outstanding > 0 || keepIds.includes(x.purchase.id))
     .sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id));
 }
 
