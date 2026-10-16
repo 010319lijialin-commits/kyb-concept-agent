@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="进销账" />
+<meta name="theme-color" content="#0f766e" />
+<title>进销账</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="stylesheet" href="ledger.css" />
+</head>
+<body>
+<main id="app">
+  <section class="page" id="page-home"></section>
+  <section class="page" id="page-trade" hidden></section>
+  <section class="page" id="page-receipt" hidden></section>
+  <section class="page" id="page-company" hidden></section>
+  <section class="page" id="page-settings" hidden></section>
+</main>
+
+<nav class="tabbar">
+  <button data-tab="home" class="on"><span>📊</span>总览</button>
+  <button data-tab="trade"><span>📦</span>进销</button>
+  <button data-tab="receipt"><span>💰</span>回款</button>
+  <button data-tab="company"><span>🏢</span>公司账户</button>
+  <button data-tab="settings"><span>⚙️</span>设置</button>
+</nav>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-mask" data-close></div>
+  <div class="sheet-body" role="dialog" aria-modal="true">
+    <div class="sheet-hd"><h2 id="sheet-title"></h2><button class="x" data-close aria-label="关闭">✕</button></div>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
