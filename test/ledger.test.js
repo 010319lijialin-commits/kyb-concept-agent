@@ -182,3 +182,25 @@ test('回到个人账户：多批合并、最后一批只回一部分，按各�
   const alloc = autoAllocateNet(s, '下游C', 142 + 284 + 185);
   assert.deepEqual(alloc, [{ saleId: 'a', amount: 150 }, { saleId: 'b', amount: 300 }, { saleId: 'c', amount: 200 }]);
 });
+
+// ---------- 下拉单 ----------
+import { seedLists, addToList, lastUsed } from '../public/ledger/core.js';
+
+test('老账本：已经记过的名字自动进下拉单', () => {
+  const s = threeBatches();
+  s.payments.push({ id: 'pay', date: '2026-09-05', supplier: '上游B', account: 'personal', amount: 1, allocations: [] });
+  assert.deepEqual(seedLists(s), { products: ['甲'], suppliers: ['上游A', '上游B'], customers: ['下游C'] });
+});
+
+test('加入下拉单：去空格、不重复', () => {
+  const s = emptyState();
+  assert.equal(addToList(s, 'customers', '  仁和医院 '), true);
+  assert.equal(addToList(s, 'customers', '仁和医院'), false);
+  assert.equal(addToList(s, 'customers', ''), false);
+  assert.deepEqual(s.lists.customers, ['仁和医院']);
+});
+
+test('最近用过的日期', () => {
+  const m = lastUsed(threeBatches(), 'customers');
+  assert.equal(m.get('下游C'), '2026-09-04');
+});

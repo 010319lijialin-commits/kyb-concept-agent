@@ -4,6 +4,7 @@ import {
   saleTaxBreakdown, avgCosts, normSettings, pct,
   previewWithdrawal, companyBalanceAt, receiptGross,
   saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, prevMonth,
+  seedLists, addToList, lastUsed,
 } from './core.js';
 import { createStore } from './store.js';
 
@@ -24,7 +25,11 @@ const store = createStore({
   onStatus: (s) => { syncStatus = s; paintSync(); },
   onRemote: (s) => { mine = hydrate(s); if (!demoMode) { state = mine; recompute(); } },
 });
-const hydrate = (s) => ({ ...emptyState(), ...s });
+const hydrate = (s) => {
+  const h = { ...emptyState(), ...s };
+  if (!s?.lists) h.lists = seedLists(h); // 老账本：记过的名字直接进下拉单
+  return h;
+};
 const hasData = (s) => Boolean(s && (s.purchases?.length || s.sales?.length || s.receipts?.length));
 
 let mine = hydrate(store.local() || {});
@@ -120,6 +125,7 @@ const ICON = {
   out: '<path d="M12 14V3M7.5 7.5 12 3l4.5 4.5"/><path d="M4 15v4.5h16V15"/>',
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/>',
   withdraw: '<rect x="3" y="3.5" width="18" height="10" rx="2"/><path d="M12 8v12.5M8 16.5l4 4 4-4"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
   pay: '<rect x="2.5" y="6" width="13" height="12" rx="2"/><circle cx="9" cy="12" r="2.4"/><path d="M15.5 12h6M18.5 9l3 3-3 3"/>',
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
@@ -142,7 +148,6 @@ function closeSheet() {
 document.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
 
 const names = (arr, k) => [...new Set(arr.map((x) => x[k]).filter(Boolean))];
-const datalist = (id, values) => `<datalist id="${id}">${values.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
 
 function groupByDate(items) {
   const out = [];
@@ -429,6 +434,18 @@ function renderSettings() {
       <p class="small muted" style="margin:0">改了税率，以前所有回款的扣税都会按新税率重算。如果中途税率变过，先导出备份再改。</p>
     </div>
     <div class="card">
+      <h3>下拉单</h3>
+      <p class="small muted" style="margin-top:0">记账时打的新名字，勾上「加入下拉单」就会出现在这里，下次直接选。也可以在这里手动加、删；删掉不影响已经记的账。</p>
+      ${['products', 'customers', 'suppliers'].map((k) => {
+        const list = state.lists?.[k] || [];
+        return `<div class="lst">
+          <div class="lbl">${LIST_LABEL[k]} <span class="muted small">${list.length} 个</span></div>
+          <div class="tags">${list.length ? list.map((n) => `<span class="tag">${esc(n)}<button type="button" data-del-name="${k}" data-name="${esc(n)}" aria-label="从下拉单删掉 ${esc(n)}">×</button></span>`).join('') : '<span class="muted small">还没有</span>'}</div>
+          <div class="tag-add"><input class="inp sm" id="add-${k}" placeholder="新加一个${LIST_LABEL[k]}"><button type="button" class="btn sm" data-add-name="${k}">加入</button></div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="card">
       <h3>备份</h3>
       <p class="small muted" style="margin-top:0">${store.cloud
         ? '账存在你 claude.ai 账号下的私有空间，只有你自己看得到；换手机、换电脑登录同一个账号也在。导出一份留底更安心。'
@@ -470,6 +487,20 @@ function renderSettings() {
     save();
     toast('税率已更新');
   };
+  $('#page-settings').querySelectorAll('[data-del-name]').forEach((b) => (b.onclick = () => {
+    const list = state.lists[b.dataset.delName];
+    list.splice(list.indexOf(b.dataset.name), 1);
+    save();
+    toast(`已从下拉单删掉「${b.dataset.name}」，已记的账不受影响`);
+  }));
+  $('#page-settings').querySelectorAll('[data-add-name]').forEach((b) => (b.onclick = () => {
+    const k = b.dataset.addName;
+    const v = $(`#add-${k}`).value.trim();
+    if (!v) return toast(`先填${LIST_LABEL[k]}的名字`);
+    if (!addToList(state, k, v)) return toast(`「${v}」已经在下拉单里了`);
+    save();
+    toast(`「${v}」已加入${LIST_LABEL[k]}下拉单`);
+  }));
   $('#exp').onclick = () => download(`进销账-${today()}.json`, JSON.stringify(mine, null, 2));
   $('#exp-csv').onclick = exportCsv;
   $('#imp').onchange = async (e) => {
@@ -563,18 +594,110 @@ function remove(list, id) {
 const delBtn = (rec) => (rec ? '<button class="btn danger block" id="f-del" type="button" style="margin-top:8px">删除这笔</button>' : '');
 const num = (root, sel) => parseFloat($(sel, root).value);
 
+// ---------- 名称下拉单 ----------
+// 品种、上游公司、下游公司各一张，存在账本里，跟着云端同步。
+// 点输入框就列出单子里的名字，边打字边筛；打了个单子里没有的新名字，下面会出现
+// 「加入下拉单」（默认勾上，不想加就取消），保存这笔账时才真的加进去。
+const LIST_LABEL = { products: '品种', suppliers: '上游公司', customers: '下游公司' };
+
+function pickerField(id, key, value, { placeholder = '', add = true } = {}) {
+  return `<div class="picker" data-picker="${key}" data-add="${add ? 1 : 0}">
+    <div class="picker-box">
+      <input class="inp" id="${id}" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="${id}-list">
+      <button type="button" class="picker-toggle" aria-label="打开${LIST_LABEL[key]}下拉单">${icon('chev')}</button>
+      <ul class="picker-list" id="${id}-list" role="listbox" hidden></ul>
+    </div>
+    <label class="picker-add" hidden><input type="checkbox" checked><span></span></label>
+  </div>`;
+}
+
+// 下拉单里的选项：最近用过的排前面，旁边带一句当前情况（库存、谁欠谁多少）
+function pickerOptions(key, extra = [], owingFirst = false) {
+  const used = lastUsed(state, key);
+  const all = [...new Set([...(state.lists?.[key] || []), ...extra])];
+  const info = (n) => {
+    if (key === 'products') { const p = R.products.find((x) => x.name === n); return { note: p ? `库存 ${p.stock}` : '', owe: 0 }; }
+    const c = (key === 'customers' ? R.customers : R.suppliers).find((x) => x.name === n);
+    const owe = c?.outstanding || 0;
+    return { note: owe ? `${key === 'customers' ? '还欠我' : '我还欠'} ${y(owe)}` : '', owe };
+  };
+  return all.map((n) => ({ name: n, ...info(n), last: used.get(n) || '' }))
+    .sort((a, b) => (owingFirst && (b.owe > 0) - (a.owe > 0)) || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+}
+
+function wirePickers(root, { extra = {}, owingFirst = false } = {}) {
+  root.querySelectorAll('.picker').forEach((pk) => {
+    const key = pk.dataset.picker;
+    const inp = pk.querySelector('input.inp');
+    const list = pk.querySelector('.picker-list');
+    const addRow = pk.querySelector('.picker-add');
+    const opts = () => pickerOptions(key, extra[key] || [], owingFirst);
+
+    const paint = (showAll) => {
+      const q = showAll ? '' : inp.value.trim();
+      const all = opts();
+      const items = all.filter((o) => !q || o.name.includes(q));
+      list.innerHTML = items.length
+        ? items.slice(0, 60).map((o) => `<li role="option"><button type="button" data-pick="${esc(o.name)}"><span>${esc(o.name)}</span>${o.note ? `<small>${o.note}</small>` : ''}</button></li>`).join('')
+        : `<li class="picker-empty">${all.length ? '下拉单里没有这个名字' : `${LIST_LABEL[key]}下拉单还是空的：打个名字，勾上「加入下拉单」，下次就能直接选`}</li>`;
+      return items.length;
+    };
+    // 打字时只有对得上的名字才弹出来，对不上就收起，露出下面的「加入下拉单」
+    const open = (showAll) => {
+      const n = paint(showAll);
+      if (!n && !showAll) return close();
+      list.hidden = false;
+      inp.setAttribute('aria-expanded', 'true');
+    };
+    const close = () => { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); };
+    const paintAdd = () => {
+      const v = inp.value.trim();
+      const show = pk.dataset.add === '1' && v && !(state.lists?.[key] || []).includes(v);
+      addRow.hidden = !show;
+      if (show) addRow.querySelector('span').textContent = `把「${v}」加入${LIST_LABEL[key]}下拉单，下次直接选`;
+    };
+
+    let picking = false;
+    inp.addEventListener('focus', () => open(false));
+    inp.addEventListener('input', () => { if (!picking) open(false); paintAdd(); });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    pk.querySelector('.picker-toggle').addEventListener('click', () => (list.hidden ? open(true) : close()));
+    list.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pick]');
+      if (!b) return;
+      inp.value = b.dataset.pick;
+      close();
+      picking = true;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+      picking = false;
+    });
+    root.addEventListener('pointerdown', (e) => { if (!pk.contains(e.target)) close(); });
+    paintAdd();
+  });
+}
+
+// 保存一笔账时，把勾了「加入下拉单」的新名字真正加进去；返回加了哪些
+function commitPickers(root) {
+  const added = [];
+  root.querySelectorAll('.picker').forEach((pk) => {
+    const row = pk.querySelector('.picker-add');
+    if (row.hidden || !row.querySelector('input').checked) return;
+    const v = pk.querySelector('input.inp').value.trim();
+    if (addToList(state, pk.dataset.picker, v)) added.push(v);
+  });
+  return added;
+}
+const addedNote = (added) => (added.length ? `，「${added.join('」「')}」已加入下拉单` : '');
+
 // ---------- 进货 / 销售 ----------
 function tradeFields(kind, rec) {
   const partyLabel = kind === 'sale' ? '下游公司' : '上游公司';
   const partyKey = kind === 'sale' ? 'customer' : 'supplier';
-  const parties = kind === 'sale' ? names(state.sales, 'customer') : names(state.purchases, 'supplier');
-  const products = [...new Set([...names(state.purchases, 'product'), ...names(state.sales, 'product')])];
   return `
-    <div class="two">
-      <div class="f"><label>日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
-      <div class="f"><label>品种</label><input class="inp" id="f-product" list="dl-prod" value="${esc(rec?.product || '')}" placeholder="比如 甲"></div>
-    </div>
-    <div class="f"><label>${partyLabel}</label><input class="inp" id="f-party" list="dl-party" value="${esc(rec?.[partyKey] || '')}" placeholder="名字"></div>
+    <div class="f"><label>日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
+    <div class="f"><label for="f-product">品种</label>${pickerField('f-product', 'products', rec?.product || '', { placeholder: '选一个，或打个新名字' })}</div>
+    <div class="f"><label for="f-party">${partyLabel}</label>${pickerField('f-party', kind === 'sale' ? 'customers' : 'suppliers', rec?.[partyKey] || '', { placeholder: '选一个，或打个新名字' })}</div>
     <div class="two">
       <div class="f"><label>数量</label><input class="inp" type="number" inputmode="decimal" id="f-qty" value="${rec?.qty ?? ''}"></div>
       <div class="f"><label>${kind === 'sale' ? '售价' : '进价'}（元/件）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-price" value="${rec?.price ?? ''}"></div>
@@ -584,12 +707,12 @@ function tradeFields(kind, rec) {
     <div class="calc" id="f-calc"></div>
     ${rec ? (kind === 'sale' ? batchHistory(state.receipts, 'saleId', rec.id, '这批货的回款') : batchHistory(state.payments || [], 'purchaseId', rec.id, '这批货的付款')) : ''}
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}" placeholder="批号、票号…"></div>
-    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
-    ${datalist('dl-party', parties)}${datalist('dl-prod', products)}`;
+    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}`;
 }
 
 function purchaseForm(rec) {
   openSheet(rec ? '改进货' : '记进货', tradeFields('purchase', rec), (root) => {
+    wirePickers(root);
     const calc = () => {
       const qty = num(root, '#f-qty') || 0, price = num(root, '#f-price') || 0;
       const pp = rec && R.purchasesById.get(rec.id);
@@ -603,7 +726,8 @@ function purchaseForm(rec) {
       const pp = rec && R.purchasesById.get(rec.id);
       if (pp && pp.paid > toCents(purchaseAmount(r))) return toast(`这笔已付 ${y(pp.paid)}，金额不能改得比它小`);
       if (pp && pp.paid && r.supplier !== rec.supplier) return toast('这笔已付过款，不能换上游；先删付款');
-      upsert(state.purchases, r); save(); closeSheet(); toast('已记进货');
+      const added = commitPickers(root);
+      upsert(state.purchases, r); save(); closeSheet(); toast('已记进货' + addedNote(added));
     };
     if (rec) $('#f-del', root).onclick = async () => {
       const used = (state.payments || []).filter((x) => (x.allocations || []).some((a) => a.purchaseId === rec.id));
@@ -615,6 +739,7 @@ function purchaseForm(rec) {
 
 function saleForm(rec) {
   openSheet(rec ? '改销售' : '记销售', tradeFields('sale', rec), (root) => {
+    wirePickers(root);
     const avg = avgCosts(state);
     // 进价没手动改过，就跟着品种自动填平均进价
     let costTouched = rec?.cost != null && rec.cost !== '';
@@ -662,7 +787,8 @@ function saleForm(rec) {
       const s = rec && R.salesById.get(rec.id);
       if (s && s.settled > toCents(saleAmount(r))) return toast(`这笔已回款 ${y(s.settled)}，金额不能改得比它小`);
       if (s && s.settled && r.customer !== rec.customer) return toast('这笔已有回款，不能换下游；先删回款');
-      upsert(state.sales, r); save(); closeSheet(); toast('已记销售');
+      const added = commitPickers(root);
+      upsert(state.sales, r); save(); closeSheet(); toast('已记销售' + addedNote(added));
     };
     if (rec) $('#f-del', root).onclick = async () => {
       const used = state.receipts.filter((x) => (x.allocations || []).some((a) => a.saleId === rec.id));
@@ -748,13 +874,12 @@ function receiptForm(rec, presetCustomer) {
   let account = rec?.account || ACCOUNT.COMPANY;
   let customer = rec?.customer || presetCustomer || '';
   let preset = new Map((rec?.allocations || []).map((a) => [a.saleId, a.amount]));
-  const customers = names(state.sales, 'customer');
 
   openSheet(rec ? '改回款' : '记回款', `
     <div class="two">
       <div class="f"><label>到账日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
-      <div class="f"><label>哪家回的</label><input class="inp" id="f-cust" list="dl-cust" value="${esc(customer)}" placeholder="下游公司"></div>
     </div>
+    <div class="f"><label for="f-cust">哪家回的</label>${pickerField('f-cust', 'customers', customer, { placeholder: '选下游公司', add: false })}</div>
     <div class="f"><label>回到哪个账户</label>
       <div class="acct">
         <button type="button" data-v="company"><b>公司账户</b><small>全额到账<br>扣完税的算你的</small></button>
@@ -766,8 +891,9 @@ function receiptForm(rec, presetCustomer) {
     <div class="alloc" id="f-alloc"></div>
     <div class="calc" id="f-calc"></div>
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
-    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
-    ${datalist('dl-cust', customers)}`, (root) => {
+    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}`, (root) => {
+    // 回款只能回给有过销售的下游：下拉单里补上所有卖过货的，欠钱的排前面
+    wirePickers(root, { extra: { customers: names(state.sales, 'customer') }, owingFirst: true });
 
     const amount = () => toCents(num(root, '#f-amt') || 0);
     const rates = saleRates(state);
@@ -865,8 +991,8 @@ function paymentForm(rec, presetSupplier) {
   openSheet(rec ? '改付款' : '付上游货款', `
     <div class="two">
       <div class="f"><label>打款日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
-      <div class="f"><label>打给哪家</label><input class="inp" id="f-sup" list="dl-sup" value="${esc(supplier)}" placeholder="上游公司"></div>
     </div>
+    <div class="f"><label for="f-sup">打给哪家</label>${pickerField('f-sup', 'suppliers', supplier, { placeholder: '选上游公司', add: false })}</div>
     <div class="f"><label>从哪个账户打出</label>
       <div class="acct">
         <button type="button" data-v="personal"><b>个人账户</b><small>从自己卡里付</small></button>
@@ -878,8 +1004,8 @@ function paymentForm(rec, presetSupplier) {
     <div class="alloc" id="f-alloc"></div>
     <div class="calc" id="f-calc"></div>
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
-    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
-    ${datalist('dl-sup', names(state.purchases, 'supplier'))}`, (root) => {
+    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}`, (root) => {
+    wirePickers(root, { extra: { suppliers: names(state.purchases, 'supplier') }, owingFirst: true });
 
     const amount = () => toCents(num(root, '#f-amt') || 0);
     const keep = rec?.supplier === supplier ? (rec.allocations || []).map((a) => a.purchaseId) : [];
@@ -1012,6 +1138,7 @@ function demoState() {
     { id: 'pay1', date: d(lm, 2), supplier: '华东医药供应链', account: 'personal', amount: 200, allocations: [{ purchaseId: 'p1', amount: 200 }], note: '' },
     { id: 'pay2', date: d(lm, 22), supplier: '华东医药供应链', account: 'company', amount: 3000, allocations: [{ purchaseId: 'p2', amount: 3000 }], note: '' },
   );
+  s.lists = seedLists(s);
   return s;
 }
 

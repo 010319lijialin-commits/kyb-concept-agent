@@ -22,7 +22,42 @@ export function emptyState() {
     receipts: [],    // { id, date, customer, account, amount(到账), allocations:[{saleId, amount(核销)}], note }
     payments: [],    // { id, date, supplier, account, amount(打出去的钱), allocations:[{purchaseId, amount}], note }
     withdrawals: [], // { id, date, net(从公司提到个人的钱), note }
+    lists: { products: [], suppliers: [], customers: [] }, // 下拉单：用户自己选择要不要加进来的名字
   };
+}
+
+// ---------- 下拉单 ----------
+export const LIST_KEYS = ['products', 'suppliers', 'customers'];
+
+// 老账本没有下拉单：把已经记过的名字放进去，用户不用重新输
+export function seedLists(state) {
+  const uniq = (arr) => [...new Set(arr.map((x) => String(x || '').trim()).filter(Boolean))];
+  return {
+    products: uniq([...state.purchases.map((p) => p.product), ...state.sales.map((x) => x.product)]),
+    suppliers: uniq([...state.purchases.map((p) => p.supplier), ...(state.payments || []).map((p) => p.supplier)]),
+    customers: uniq([...state.sales.map((x) => x.customer), ...state.receipts.map((r) => r.customer)]),
+  };
+}
+
+// 加一个名字到下拉单（去掉首尾空格、不重复），返回是否真的加了
+export function addToList(state, key, name) {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  state.lists = state.lists || { products: [], suppliers: [], customers: [] };
+  const list = state.lists[key] || (state.lists[key] = []);
+  if (list.includes(n)) return false;
+  list.push(n);
+  return true;
+}
+
+// 每个名字最近一次用到的日期，下拉单里按它排（最近用过的在前）
+export function lastUsed(state, key) {
+  const m = new Map();
+  const touch = (name, date) => { if (name && (!m.has(name) || m.get(name) < date)) m.set(name, date); };
+  if (key === 'products') { state.purchases.forEach((p) => touch(p.product, p.date)); state.sales.forEach((x) => touch(x.product, x.date)); }
+  if (key === 'suppliers') { state.purchases.forEach((p) => touch(p.supplier, p.date)); (state.payments || []).forEach((p) => touch(p.supplier, p.date)); }
+  if (key === 'customers') { state.sales.forEach((x) => touch(x.customer, x.date)); state.receipts.forEach((r) => touch(r.customer, r.date)); }
+  return m;
 }
 
 export const toCents = (yuan) => Math.round((Number(yuan) || 0) * 100);
