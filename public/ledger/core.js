@@ -18,7 +18,7 @@ export function emptyState() {
     version: 4,
     settings: { ...DEFAULT_SETTINGS },
     purchases: [],   // { id, date, supplier, product, qty, price, note }
-    sales: [],       // { id, date, customer, product, qty, price, cost(单位进价), note }
+    sales: [],       // { id, date, customer, product, qty, price, note }  进价自动算，见 costLookup
     receipts: [],    // { id, date, customer, account, amount(到账), allocations:[{saleId, amount(核销)}], note }
     payments: [],    // { id, date, supplier, account, amount(打出去的钱), allocations:[{purchaseId, amount}], note }
     withdrawals: [], // { id, date, net(从公司提到个人的钱), note }
@@ -90,11 +90,44 @@ export function avgCosts(state) {
   return out;
 }
 
-// 这笔销售的单位进价：录了就用录的，没录就用该品种平均进价
-export function unitCost(sale, avg) {
-  if (isNum(sale.cost)) return Number(sale.cost);
-  return avg.get(sale.product) ?? 0;
+// 销售不用填进价，自动算：这个品种在卖出那天及之前进的货，按数量加权的平均进价（元/件）。
+// - 之后再进的货（哪怕价格不同）不影响已经卖掉的，记好的账不会自己变
+// - 改了某笔进货的价格，用到它的销售会跟着重算
+// - 卖出之前没有进货记录，用这个品种全部进货的平均价；一笔进货都没有算 0（会提醒先记进货）
+// 返回 (product, date) => { cost, basis: 'before' | 'all' | 'none' }
+export function costLookup(state) {
+  const by = new Map();
+  for (const p of state.purchases) {
+    if (!by.has(p.product)) by.set(p.product, []);
+    by.get(p.product).push(p);
+  }
+  const idx = new Map();
+  for (const [k, list] of by) {
+    list.sort((a, b) => cmp(a.date, b.date));
+    let q = 0, c = 0;
+    const dates = [], cq = [], cc = [];
+    for (const p of list) {
+      q += Number(p.qty) || 0;
+      c += toCents(purchaseAmount(p));
+      dates.push(p.date); cq.push(q); cc.push(c);
+    }
+    idx.set(k, { dates, cq, cc });
+  }
+  return (product, date) => {
+    const x = idx.get(product);
+    if (!x) return { cost: 0, basis: 'none' };
+    let lo = 0, hi = x.dates.length - 1, i = -1; // 最后一笔日期 ≤ date 的进货
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (x.dates[m] <= date) { i = m; lo = m + 1; } else hi = m - 1;
+    }
+    const j = i >= 0 ? i : x.dates.length - 1;
+    if (!x.cq[j]) return { cost: 0, basis: 'none' };
+    return { cost: x.cc[j] / x.cq[j] / 100, basis: i >= 0 ? 'before' : 'all' };
+  };
 }
+
+export const costBasis = (state, product, date) => costLookup(state)(product, date);
 
 // 每回 1 元这笔销售的款，要扣多少税
 export function saleTaxRate(price, cost, settings) {
@@ -117,13 +150,13 @@ export function saleTaxBreakdown(sale, cost, settings) {
 
 const taxOn = (cents, rate) => Math.round(cents * rate);
 
-// saleId → { cost, rate }
+// saleId → { cost, basis, rate }
 export function saleRates(state) {
-  const avg = avgCosts(state);
+  const lookup = costLookup(state);
   const m = new Map();
   for (const s of state.sales) {
-    const cost = unitCost(s, avg);
-    m.set(s.id, { cost, rate: saleTaxRate(s.price, cost, state.settings) });
+    const { cost, basis } = lookup(s.product, s.date);
+    m.set(s.id, { cost, basis, rate: saleTaxRate(s.price, cost, state.settings) });
   }
   return m;
 }
@@ -240,7 +273,6 @@ const TYPE_ORDER = { receipt: 0, payment: 1, withdrawal: 2 };
 export function compute(state) {
   const settings = normSettings(state.settings);
   const issues = [];
-  const avg = avgCosts(state);
   const rates = saleRates(state);
   const payments = state.payments || [];
   const withdrawalsIn = state.withdrawals || [];
@@ -250,13 +282,13 @@ export function compute(state) {
   const sales = state.sales.map((s) => {
     const total = toCents(saleAmount(s));
     const done = settled.get(s.id) || 0;
-    const { cost, rate } = rates.get(s.id);
+    const { cost, basis, rate } = rates.get(s.id);
     const tb = saleTaxBreakdown(s, cost, settings);
     if (done > total) issues.push(`销售「${s.customer} ${s.product}」核销金额超过了销售额`);
-    if (!isNum(s.cost) && !avg.has(s.product)) issues.push(`销售「${s.date} ${s.customer} ${s.product}」没有进价，差价税会按全额算`);
+    if (basis === 'none') issues.push(`还没记过「${s.product}」的进货，${s.date} 卖给 ${s.customer} 的这批差价税先按全额算；补记进货后会自动重算`);
     return {
       ...s, total, settled: done, outstanding: Math.max(0, total - done),
-      unitCost: cost, cogs: Math.round(toCents(cost) * Number(s.qty || 0)), rate, taxFull: tb.tax, taxBreakdown: tb,
+      unitCost: cost, costBasis: basis, cogs: Math.round(toCents(cost) * Number(s.qty || 0)), rate, taxFull: tb.tax, taxBreakdown: tb,
     };
   });
   const salesById = new Map(sales.map((s) => [s.id, s]));

@@ -1,7 +1,7 @@
 import {
   ACCOUNT, emptyState, compute, autoAllocate, autoAllocateNet, openSalesFor, saleRates,
   openPurchasesFor, autoAllocatePayment, paymentAllocated, previewPayment,
-  saleTaxBreakdown, avgCosts, normSettings, pct,
+  saleTaxBreakdown, costBasis, normSettings, pct,
   previewWithdrawal, companyBalanceAt, receiptGross,
   saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, prevMonth,
   seedLists, addToList, lastUsed,
@@ -286,7 +286,7 @@ function renderTrade() {
     const items = [...R.sales].sort(byDateDesc).map((s) => ({
       date: s.date, html: `
       <li class="item" data-edit="sale" data-id="${s.id}">
-        <div class="l"><div class="t">${esc(s.customer)}</div><div class="s">${esc(s.product)} ${s.qty} × ${yy(s.price)} · 进价 ${+s.unitCost.toFixed(4)} · 税 ${y(s.taxFull)}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
+        <div class="l"><div class="t">${esc(s.customer)}</div><div class="s">${esc(s.product)} ${s.qty} × ${yy(s.price)} · 回清要扣税 ${y(s.taxFull)}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
         <div class="r"><div class="amt num">${y(s.total)}</div>${salePill(s)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有销售记录</li>'}</ul></div>`;
@@ -461,7 +461,7 @@ function renderSettings() {
       <h3 style="color:var(--text)">这本账是怎么记的</h3>
       <p><b>销售 = 应收。</b>每卖一笔，就多一笔下游欠你的钱。</p>
       <p><b>回款 = 核销应收。</b>下游一次打款可以核销好几笔销售（合并回款），默认按最早的先核销，也可以手动分。</p>
-      <p><b>扣多少税跟着差价走：</b>每笔销售记一个进价。进价 1、卖 1.5、200 件，全部回款要扣 300×1% + 100×13% = 16。合并回款时，核销到哪笔销售就按哪笔的差价算。</p>
+      <p><b>扣多少税跟着差价走：</b>销售不用填进价，自动按这个品种在卖出那天及之前进的货的平均价算。进价 1、卖 1.5、200 件，全部回款要扣 300×1% + 100×13% = 16。之后再进价格不同的货，不影响已经卖掉的。</p>
       <p><b>回个人账户：</b>到账就是扣完税的钱。上面那笔回到个人，到账 284，系统反推核销了 300 应收、扣税 16。</p>
       <p><b>回公司账户：</b>到账多少记多少，按同样的规则扣掉税，剩下的就是你在公司的钱。上面那笔回到公司，到账 300，算你的 284。公司什么时候交税不影响这个数。</p>
       <p><b>付上游 = 核销应付。</b>每笔进货就是欠上游的钱；打钱给上游时记一笔付款，可以一次付好几笔进货，从个人账户或公司账户打出都行。从公司付，就从你在公司的钱里扣。</p>
@@ -702,8 +702,6 @@ function tradeFields(kind, rec) {
       <div class="f"><label>数量</label><input class="inp" type="number" inputmode="decimal" id="f-qty" value="${rec?.qty ?? ''}"></div>
       <div class="f"><label>${kind === 'sale' ? '售价' : '进价'}（元/件）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-price" value="${rec?.price ?? ''}"></div>
     </div>
-    ${kind === 'sale' ? `<div class="f"><label>这批货的进价（元/件） <span class="tip">默认填该品种平均进价，用来算差价税</span></label>
-      <input class="inp" type="number" inputmode="decimal" step="0.0001" id="f-cost" value="${rec?.cost ?? ''}"></div>` : ''}
     <div class="calc" id="f-calc"></div>
     ${rec ? (kind === 'sale' ? batchHistory(state.receipts, 'saleId', rec.id, '这批货的回款') : batchHistory(state.payments || [], 'purchaseId', rec.id, '这批货的付款')) : ''}
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}" placeholder="批号、票号…"></div>
@@ -740,37 +738,33 @@ function purchaseForm(rec) {
 function saleForm(rec) {
   openSheet(rec ? '改销售' : '记销售', tradeFields('sale', rec), (root) => {
     wirePickers(root);
-    const avg = avgCosts(state);
-    // 进价没手动改过，就跟着品种自动填平均进价
-    let costTouched = rec?.cost != null && rec.cost !== '';
-    $('#f-cost', root).addEventListener('input', () => { costTouched = $('#f-cost', root).value !== ''; });
-    const fillCost = () => {
-      if (costTouched) return;
-      const a = avg.get($('#f-product', root).value.trim());
-      $('#f-cost', root).value = a != null ? +a.toFixed(4) : '';
-    };
-    $('#f-product', root).addEventListener('input', fillCost);
-    fillCost();
 
     const calc = () => {
       const qty = num(root, '#f-qty') || 0, price = num(root, '#f-price') || 0;
-      const cost = num(root, '#f-cost');
-      const p = R.products.find((x) => x.name === $('#f-product', root).value.trim());
+      const product = $('#f-product', root).value.trim();
+      const date = $('#f-date', root).value || today();
+      const p = R.products.find((x) => x.name === product);
       const amt = toCents(qty * price);
       let html = `<div class="ln total"><span>销售金额（应收）</span><span class="num">${y(amt)}</span></div>`;
       if (p && p.inQty) {
         const stock = p.stock + (rec && rec.product === p.name ? Number(rec.qty) : 0);
         html += `<div class="ln"><span>库存</span><span class="num ${stock < qty ? 'bad' : ''}">${stock}${stock < qty ? '（不够）' : ''}</span></div>`;
       }
-      if (Number.isFinite(cost) && amt) {
-        const b = saleTaxBreakdown({ qty, price }, cost, R.settings);
-        const cogs = toCents(cost * qty);
-        html += `<div class="ln"><span>差价 (${price} − ${cost}) × ${qty}</span><span class="num">${y(amt - cogs)}</span></div>
-          <div class="ln"><span>回款时扣：回款额 × ${pct(R.settings.revenueRate)}</span><span class="num">${y(b.revenueTax)}</span></div>
-          <div class="ln"><span>　　　　+ 差价 × ${pct(R.settings.marginRate)}</span><span class="num">${y(b.marginTax)}</span></div>
-          <div class="ln total"><span>扣税 ${y(b.tax)}，税后赚</span><span class="num">${y(amt - cogs - b.tax)}</span></div>`;
-      } else if (amt) {
-        html += '<div class="ln warn"><span>没填进价，差价税会按全部销售额算</span></div>';
+      if (product && amt) {
+        // 进价不用填：按这个品种在卖出那天及之前进的货的平均价自动算
+        const { cost, basis } = costBasis(state, product, date);
+        if (basis === 'none') {
+          html += `<div class="ln warn"><span>还没记过「${esc(product)}」的进货，差价税先按全额算；补记进货后会自动重算</span></div>`;
+        } else {
+          const b = saleTaxBreakdown({ qty, price }, cost, R.settings);
+          const cogs = toCents(cost * qty);
+          const costText = +cost.toFixed(4);
+          html += `<div class="ln"><span>进价按 ¥${costText} 算（${basis === 'before' ? `${date.slice(5)} 之前进的${esc(product)}的平均价` : `${esc(product)}全部进货的平均价`}）</span></div>
+            <div class="ln"><span>差价 (${price} − ${costText}) × ${qty}</span><span class="num">${y(amt - cogs)}</span></div>
+            <div class="ln"><span>回款时扣：回款额 × ${pct(R.settings.revenueRate)}</span><span class="num">${y(b.revenueTax)}</span></div>
+            <div class="ln"><span>　　　　+ 差价 × ${pct(R.settings.marginRate)}</span><span class="num">${y(b.marginTax)}</span></div>
+            <div class="ln total"><span>扣税 ${y(b.tax)}，税后赚</span><span class="num">${y(amt - cogs - b.tax)}</span></div>`;
+        }
       }
       if (rec) {
         const s = R.salesById.get(rec.id);
@@ -780,10 +774,8 @@ function saleForm(rec) {
     };
     root.addEventListener('input', calc); calc();
     $('#f-save', root).onclick = () => {
-      const cost = num(root, '#f-cost');
-      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, customer: $('#f-party', root).value.trim(), product: $('#f-product', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), cost: Number.isFinite(cost) ? cost : null, note: $('#f-note', root).value.trim() };
+      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, customer: $('#f-party', root).value.trim(), product: $('#f-product', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), note: $('#f-note', root).value.trim() };
       if (!r.date || !r.customer || !r.product || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、下游、品种、数量、售价都要填');
-      if (r.cost != null && r.cost < 0) return toast('进价不能是负数');
       const s = rec && R.salesById.get(rec.id);
       if (s && s.settled > toCents(saleAmount(r))) return toast(`这笔已回款 ${y(s.settled)}，金额不能改得比它小`);
       if (s && s.settled && r.customer !== rec.customer) return toast('这笔已有回款，不能换下游；先删回款');
@@ -1120,11 +1112,11 @@ function demoState() {
     { id: 'p2', date: d(lm, 5), supplier: '华东医药供应链', product: '乙', qty: 500, price: 8, note: '' },
   );
   s.sales.push(
-    { id: 's1', date: d(lm, 3), customer: '仁和医院', product: '甲', qty: 80, price: 1.5, cost: 1, note: '' },
-    { id: 's2', date: d(lm, 4), customer: '仁和医院', product: '甲', qty: 60, price: 1.5, cost: 1, note: '' },
-    { id: 's3', date: d(lm, 6), customer: '康宁大药房', product: '甲', qty: 60, price: 1.5, cost: 1, note: '' },
-    { id: 's4', date: d(lm, 8), customer: '仁和医院', product: '乙', qty: 300, price: 11, cost: 8, note: '' },
-    { id: 's5', date: d(lm, 12), customer: '康宁大药房', product: '乙', qty: 150, price: 11.3, cost: 8, note: '' },
+    { id: 's1', date: d(lm, 3), customer: '仁和医院', product: '甲', qty: 80, price: 1.5, note: '' },
+    { id: 's2', date: d(lm, 4), customer: '仁和医院', product: '甲', qty: 60, price: 1.5, note: '' },
+    { id: 's3', date: d(lm, 6), customer: '康宁大药房', product: '甲', qty: 60, price: 1.5, note: '' },
+    { id: 's4', date: d(lm, 8), customer: '仁和医院', product: '乙', qty: 300, price: 11, note: '' },
+    { id: 's5', date: d(lm, 12), customer: '康宁大药房', product: '乙', qty: 150, price: 11.3, note: '' },
   );
   s.receipts.push(
     // 仁和医院一次打 3510，合并核销三笔销售

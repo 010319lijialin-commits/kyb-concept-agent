@@ -11,7 +11,7 @@ const y = (c) => toYuan(c);
 function single() {
   const s = emptyState();
   s.purchases.push({ id: 'p1', date: '2026-09-01', supplier: '上游A', product: '甲', qty: 200, price: 1 });
-  s.sales.push({ id: 's1', date: '2026-09-02', customer: '下游C', product: '甲', qty: 200, price: 1.5, cost: 1 });
+  s.sales.push({ id: 's1', date: '2026-09-02', customer: '下游C', product: '甲', qty: 200, price: 1.5 });
   return s;
 }
 
@@ -64,7 +64,7 @@ test('从公司提现：提多少到手多少，最多提你在公司的钱', ()
 test('合并回款核销差价不同的两笔销售：税按各自差价算', () => {
   const s = single();
   s.purchases.push({ id: 'p2', date: '2026-09-01', supplier: '上游A', product: '乙', qty: 100, price: 1 });
-  s.sales.push({ id: 's2', date: '2026-09-05', customer: '下游C', product: '乙', qty: 100, price: 2, cost: 1 });
+  s.sales.push({ id: 's2', date: '2026-09-05', customer: '下游C', product: '乙', qty: 100, price: 2 });
   const alloc = autoAllocate(s, '下游C', 400);
   assert.deepEqual(alloc, [{ saleId: 's1', amount: 300 }, { saleId: 's2', amount: 100 }]);
   // 甲 16 + 乙 100×1% + 50×13% = 1 + 6.5 → 23.5
@@ -73,9 +73,43 @@ test('合并回款核销差价不同的两笔销售：税按各自差价算', ()
   assert.equal(y(compute(s).totals.companyBalance), 376.5);
 });
 
-test('没填进价就用该品种平均进价', () => {
+// ---------- 进价自动算 ----------
+
+test('进价自动按卖出那天之前进的货算，之后的进货不影响已卖的', () => {
   const s = single();
-  delete s.sales[0].cost;
+  // 卖出之后又进了一批更贵的：已卖的那批扣税不变
+  s.purchases.push({ id: 'p2', date: '2026-09-20', supplier: '上游A', product: '甲', qty: 200, price: 1.2 });
+  let r = compute(s);
+  assert.equal(r.salesById.get('s1').unitCost, 1);
+  assert.equal(y(r.salesById.get('s1').taxFull), 16);
+  // 之后再卖的，按两批平均 1.1 算
+  s.sales.push({ id: 's2', date: '2026-09-21', customer: '下游C', product: '甲', qty: 100, price: 1.5 });
+  r = compute(s);
+  assert.equal(Math.round(r.salesById.get('s2').unitCost * 100) / 100, 1.1);
+  assert.equal(r.salesById.get('s2').costBasis, 'before');
+});
+
+test('改了进货价，用到它的销售跟着重算', () => {
+  const s = single();
+  s.purchases[0].price = 0.8; // 差价变成 0.7：3 + 140×13% = 21.2
+  assert.equal(y(compute(s).salesById.get('s1').taxFull), 21.2);
+});
+
+test('卖出之前没进货记录：用全部进货的平均价；一笔进货都没有就提醒', () => {
+  const s = single();
+  s.purchases[0].date = '2026-09-05'; // 进货日期记在卖出之后
+  let r = compute(s);
+  assert.equal(r.salesById.get('s1').unitCost, 1);
+  assert.equal(r.salesById.get('s1').costBasis, 'all');
+  s.purchases = [];
+  r = compute(s);
+  assert.equal(r.salesById.get('s1').costBasis, 'none');
+  assert.ok(r.issues.some((t) => t.includes('还没记过「甲」的进货')));
+});
+
+test('老数据里销售上存的进价不再使用', () => {
+  const s = single();
+  s.sales[0].cost = 0.5;
   assert.equal(y(compute(s).salesById.get('s1').taxFull), 16);
 });
 
@@ -141,9 +175,9 @@ test('老数据里的月度扣税记录被忽略，不影响余额', () => {
 function threeBatches() {
   const s = emptyState();
   s.purchases.push({ id: 'p1', date: '2026-09-01', supplier: '上游A', product: '甲', qty: 1000, price: 1 });
-  s.sales.push({ id: 'a', date: '2026-09-02', customer: '下游C', product: '甲', qty: 100, price: 1.5, cost: 1 }); // 150
-  s.sales.push({ id: 'b', date: '2026-09-03', customer: '下游C', product: '甲', qty: 200, price: 1.5, cost: 1 }); // 300
-  s.sales.push({ id: 'c', date: '2026-09-04', customer: '下游C', product: '甲', qty: 300, price: 2, cost: 1 });   // 600
+  s.sales.push({ id: 'a', date: '2026-09-02', customer: '下游C', product: '甲', qty: 100, price: 1.5 }); // 150
+  s.sales.push({ id: 'b', date: '2026-09-03', customer: '下游C', product: '甲', qty: 200, price: 1.5 }); // 300
+  s.sales.push({ id: 'c', date: '2026-09-04', customer: '下游C', product: '甲', qty: 300, price: 2 });   // 600
   return s;
 }
 
