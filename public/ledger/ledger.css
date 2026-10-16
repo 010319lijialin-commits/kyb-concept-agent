@@ -322,3 +322,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .linkish { border: 0; background: none; color: var(--accent); font-size: 12px; padding: 0 2px; cursor: pointer; text-decoration: underline; }
 
 .rec-search { margin: -2px 0 6px; }
+
+/* 售价放在展开区最上面；没填时标出来 */
+.goods-body [data-prices] { background: var(--surface-2); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+.goods-body [data-prices] .price-src:last-child { margin-bottom: 0; }
+.price-src-row span { font-weight: 600; }
+.inp.need { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }

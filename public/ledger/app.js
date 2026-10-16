@@ -933,9 +933,9 @@ function saleForm(rec) {
         <input class="inp sm num goods-qty" type="number" inputmode="decimal" data-total placeholder="卖几件" aria-label="${esc(g.product)}（${esc(g.supplier)}）卖几件">
       </div>
       <div class="goods-body">
+        <div data-prices></div>
         <div class="lbl alloc-hd"><span>进价情况 <span class="tip">默认先进先出，可以勾选整批或改件数</span></span><button type="button" class="btn sm" data-fifo>按先进先出</button></div>
         <div class="lots">${g.batches.length ? g.batches.map((b) => batchRow(g, b)).join('') : '<div class="empty">现在没有库存</div>'}</div>
-        <div data-prices></div>
         <div class="goods-sum" data-gsum></div>
       </div>
     </div>`;
@@ -1035,6 +1035,10 @@ function saleForm(rec) {
         const p = g.prices.get(row.dataset.sup);
         const note = row.querySelector('[data-pnote]');
         const v = p.price;
+        const need = totalQty(g) > 0 && v == null;
+        row.querySelector('[data-price]').classList.toggle('need', need);
+        row.classList.toggle('need', need);
+        if (need) { note.innerHTML = '<p class="hint warn-text">还没填售价，填了才能保存</p>'; return; }
         if (p.list == null) note.innerHTML = v != null && v > 0
           ? `<label class="picker-add"><input type="checkbox" data-psave ${p.save !== false ? 'checked' : ''}><span>把 ¥${v} 记进价目表，下次自动带出</span></label>` : '<p class="hint">价目表里还没有，填一次就能记进去</p>';
         else if (v != null && v !== p.list) note.innerHTML = `<p class="hint warn-text">价目表是 ¥${p.list}，这笔按 ¥${v} 记</p>
@@ -1062,7 +1066,7 @@ function saleForm(rec) {
           const a = Math.round(x.qty * toCents(price));
           amt += a; cogs += x.cogs; tax += taxFromTotals(a, x.cogs, R.settings).tax;
         }
-        html = missing ? '<div class="ln warn"><span>填一下售价</span></div>'
+        html = missing ? '<div class="ln warn"><span>填了上面的售价，这里会算出金额和扣税</span></div>'
           : `<div class="ln"><span>卖 ${fmtQ(qty)} 件</span><span class="num">${y(amt)}</span></div>
              <div class="ln"><span>进货成本（按选的批次）</span><span class="num">${y(cogs)}</span></div>
              <div class="ln"><span>差价 ${y(Math.max(0, amt - cogs))}，回清要扣税</span><span class="num">${y(tax)}</span></div>`;
@@ -1073,12 +1077,13 @@ function saleForm(rec) {
     };
 
     const paintTotal = () => {
-      let amt = 0, qty = 0, tax = 0, kinds = 0, partial = false;
+      let amt = 0, qty = 0, tax = 0, kinds = 0, partial = false, noPrice = 0;
       for (const g of groups.values()) {
         const q = totalQty(g);
         if (!q) continue;
         kinds++;
         qty += q;
+        if ([...bySource(g).keys()].some((sup) => g.prices.get(sup).price == null)) noPrice++;
         for (const [sup, x] of bySource(g)) {
           const price = g.prices.get(sup).price || 0;
           const a = Math.round(x.qty * toCents(price));
@@ -1094,10 +1099,19 @@ function saleForm(rec) {
         amt += Math.round(q * toCents(Number(el.querySelector('[data-mprice]').value) || 0));
       }
       $('#f-calc', root).innerHTML = kinds
-        ? `<div class="ln total"><span>${kinds > 1 ? `${kinds} 样货，` : ''}共 ${fmtQ(qty)} 件（应收）</span><span class="num">${y(amt)}</span></div>
-           <div class="ln"><span>回清后要扣税${partial ? '（不含还没记进货的）' : ''}</span><span class="num">${y(tax)}</span></div>`
+        ? (noPrice ? `<div class="ln warn"><span>还有 ${noPrice} 样货没填售价（在展开的那样货最上面填）</span></div>` : '')
+          + `<div class="ln total"><span>${kinds > 1 ? `${kinds} 样货，` : ''}共 ${fmtQ(qty)} 件（应收）</span><span class="num">${noPrice && !amt ? '—' : y(amt)}</span></div>
+           <div class="ln"><span>回清后要扣税${partial ? '（不含还没记进货的）' : ''}</span><span class="num">${noPrice && !amt ? '—' : y(tax)}</span></div>`
           + (old?.settled ? `<div class="ln warn"><span>这笔已回款</span><span class="num">${y(old.settled)}</span></div>` : '')
         : `<div class="ln"><span>在要卖的货后面填件数</span></div>`;
+    };
+
+    const setOpen = (g, open) => {
+      const el = card(g.key);
+      g.open = open;
+      el.classList.toggle('open', open);
+      el.querySelector('[data-toggle]').setAttribute('aria-expanded', open);
+      el.querySelector('.goods-more').textContent = open ? '收起' : '看进价';
     };
 
     const goodsBox = $('#f-goods', root);
@@ -1106,10 +1120,7 @@ function saleForm(rec) {
       if (!el) return;
       const g = groups.get(el.dataset.goods);
       if (e.target.closest('[data-toggle]')) {
-        g.open = !g.open;
-        el.classList.toggle('open', g.open);
-        el.querySelector('[data-toggle]').setAttribute('aria-expanded', g.open);
-        el.querySelector('.goods-more').textContent = g.open ? '收起' : '看进价';
+        setOpen(g, !g.open);
       } else if (e.target.closest('[data-fifo]')) {
         fifoFill(g, totalQty(g));
         paintGoods(g); paintTotal();
@@ -1134,6 +1145,7 @@ function saleForm(rec) {
         g.short = 0;
       } else if (e.target.matches('[data-total]')) {
         fifoFill(g, e.target.value); // 默认先进先出
+        if (!g.open && Number(e.target.value) > 0) setOpen(g, true); // 填了件数就展开：售价、批次都在里面
       } else if (e.target.matches('[data-price]')) {
         const p = g.prices.get(e.target.closest('.price-src').dataset.sup);
         p.price = e.target.value === '' ? null : Number(e.target.value);
@@ -1178,7 +1190,13 @@ function saleForm(rec) {
         if (g.batches.some((b) => (Number(g.lots.get(b.purchase.id)) || 0) > b.remaining + 1e-9)) return toast(`${g.product}（${g.supplier}）有一批卖的件数超过了库存`);
         for (const [sup, x] of bySource(g)) {
           const p = g.prices.get(sup);
-          if (p.price == null || !(p.price >= 0)) return toast(`${g.product}（${sup}）的售价要填`);
+          if (p.price == null || !(p.price >= 0)) {
+            setOpen(g, true);
+            const inp = card(g.key).querySelector(`.price-src[data-sup="${CSS.escape(sup)}"] [data-price]`);
+            inp?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            inp?.focus({ preventScroll: true });
+            return toast(`${g.product}（${sup}）的售价要填`);
+          }
           const reuse = rec && sup === recSupplier && !out.some((o) => o.sale.id === rec.id);
           out.push({ p, sup, product: g.product, sale: { id: reuse ? rec.id : uid(), date, supplier: sup, product: g.product, customer, qty: fmtQ(x.qty), price: p.price, lots: x.lots, note } });
         }
