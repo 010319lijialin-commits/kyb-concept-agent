@@ -328,3 +328,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .goods-body [data-prices] .price-src:last-child { margin-bottom: 0; }
 .price-src-row span { font-weight: 600; }
 .inp.need { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+
+/* 改了价目表里已有的售价 */
+.price-changed { margin-top: 8px; padding: 9px 10px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.price-changed b { font-weight: 700; }
+.price-changed .btn { background: var(--surface); color: var(--text); border-color: var(--border); white-space: normal; text-align: left; }
+.price-changed .btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.ask-body p { line-height: 1.6; }

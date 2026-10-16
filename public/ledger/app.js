@@ -98,19 +98,19 @@ function toast(msg) {
 }
 
 // 页面内的确认框（claude.ai 里打开时浏览器自带的 confirm() 不弹）
-function ask(message, okLabel = '确定', danger = false) {
+function ask(message, okLabel = '确定', danger = false, cancelLabel = '取消') {
   return new Promise((resolve) => {
     const box = $('#ask');
     box.innerHTML = `<div class="ask-mask"></div><div class="ask-body" role="alertdialog" aria-modal="true">
-      <p>${esc(message)}</p>
-      <div class="two"><button class="btn" data-ans="0">取消</button><button class="btn ${danger ? 'danger-solid' : 'primary'}" data-ans="1">${esc(okLabel)}</button></div></div>`;
+      <p>${esc(message).replace(/\n/g, '<br>')}</p>
+      <div class="two"><button class="btn" data-ans="0">${esc(cancelLabel)}</button><button class="btn ${danger ? 'danger-solid' : 'primary'}" data-ans="1">${esc(okLabel)}</button></div></div>`;
     box.hidden = false;
     const done = (v) => { box.hidden = true; box.innerHTML = ''; resolve(v); };
     box.querySelector('[data-ans="1"]').focus();
     box.onclick = (e) => {
       const b = e.target.closest('[data-ans]');
       if (b) done(b.dataset.ans === '1');
-      else if (e.target.classList.contains('ask-mask')) done(false);
+      else if (e.target.classList.contains('ask-mask')) done(null); // 点旁边关掉 = 没选
     };
   });
 }
@@ -1041,8 +1041,12 @@ function saleForm(rec) {
         if (need) { note.innerHTML = '<p class="hint warn-text">还没填售价，填了才能保存</p>'; return; }
         if (p.list == null) note.innerHTML = v != null && v > 0
           ? `<label class="picker-add"><input type="checkbox" data-psave ${p.save !== false ? 'checked' : ''}><span>把 ¥${v} 记进价目表，下次自动带出</span></label>` : '<p class="hint">价目表里还没有，填一次就能记进去</p>';
-        else if (v != null && v !== p.list) note.innerHTML = `<p class="hint warn-text">价目表是 ¥${p.list}，这笔按 ¥${v} 记</p>
-          <label class="picker-add"><input type="checkbox" data-psave ${p.save ? 'checked' : ''}><span>同时把价目表改成 ¥${v}</span></label>`;
+        else if (v != null && v !== p.list) note.innerHTML = `<div class="price-changed" role="status">
+            <div><b>改价了</b>：价目表里是 ¥${p.list}，这笔填的是 ¥${v}${p.save == null ? '，要更新价目表吗？' : ''}</div>
+            <div class="btn-row">
+              <button type="button" class="btn sm ${p.save === false ? 'on' : ''}" data-pchoice="once">只这笔按 ¥${v}</button>
+              <button type="button" class="btn sm ${p.save === true ? 'on' : ''}" data-pchoice="update">以后都按 ¥${v}（更新价目表）</button>
+            </div></div>`;
         else note.innerHTML = '';
       });
     };
@@ -1124,6 +1128,10 @@ function saleForm(rec) {
       } else if (e.target.closest('[data-fifo]')) {
         fifoFill(g, totalQty(g));
         paintGoods(g); paintTotal();
+      } else if (e.target.closest('[data-pchoice]')) {
+        const b = e.target.closest('[data-pchoice]');
+        g.prices.get(b.closest('.price-src').dataset.sup).save = b.dataset.pchoice === 'update';
+        paintPriceNotes(g);
       }
     });
     goodsBox.addEventListener('input', (e) => {
@@ -1149,6 +1157,7 @@ function saleForm(rec) {
       } else if (e.target.matches('[data-price]')) {
         const p = g.prices.get(e.target.closest('.price-src').dataset.sup);
         p.price = e.target.value === '' ? null : Number(e.target.value);
+        if (p.list != null) p.save = null; // 价格变了，「只这笔 / 更新价目表」要重新选
       } else if (e.target.matches('[data-psave]')) {
         g.prices.get(e.target.closest('.price-src').dataset.sup).save = e.target.checked;
         return;
@@ -1179,7 +1188,7 @@ function saleForm(rec) {
     for (const g of groups.values()) paintGoods(g);
     paintTotal();
 
-    $('#f-save', root).onclick = () => {
+    $('#f-save', root).onclick = async () => {
       const date = $('#f-date', root).value;
       const customer = $('#f-party', root).value.trim();
       const note = $('#f-note', root).value.trim();
@@ -1217,18 +1226,29 @@ function saleForm(rec) {
       if (old && old.settled > toCents(saleAmount(mine.sale))) return toast(`这笔已回款 ${y(old.settled)}，金额不能改得比它小`);
       if (old && old.settled && customer !== rec.customer) return toast('这笔已有回款，不能换下游；先删回款');
 
+      // 已经定过售价、这次手动改了价、还没说要不要更新价目表的：问一次
+      const changed = out.filter((o) => o.p && o.p.list != null && o.p.price !== o.p.list && o.p.save == null);
+      if (changed.length) {
+        const lines = changed.map((o) => `${o.product}（${o.sup}）：价目表 ¥${o.p.list}，这笔 ¥${o.p.price}`).join('\n');
+        const ans = await ask(`${changed.length > 1 ? '这几样货' : '这样货'}的售价和价目表不一样：\n${lines}\n\n要把价目表也改成这次的价吗？`,
+          '更新价目表', false, changed.length > 1 ? '只改这几笔' : '只改这笔');
+        if (ans === null) return; // 点旁边关掉：先不保存
+        for (const o of changed) o.p.save = ans;
+      }
+
       const added = commitPickers(root);
-      let priced = 0;
+      let priced = 0, updated = 0;
       for (const { p, sup, product, sale } of out) {
         if (p && p.price > 0 && (p.list == null ? p.save !== false : p.save && p.price !== p.list)) {
+          if (p.list == null) priced++; else updated++;
           setListPrice(state, sup, product, p.price);
           p.list = p.price;
-          priced++;
         }
         upsert(state.sales, sale);
       }
       save(); closeSheet();
-      toast(`已记销售${out.length > 1 ? `：${out.length} 样货` : ''}` + addedNote(added) + (priced ? '，售价已记进价目表' : ''));
+      toast(`已记销售${out.length > 1 ? `：${out.length} 样货` : ''}` + addedNote(added)
+        + (priced ? '，新售价已记进价目表' : '') + (updated ? `，价目表已更新 ${updated} 个售价` : ''));
     };
     if (rec) $('#f-del', root).onclick = async () => {
       const used = state.receipts.filter((x) => (x.allocations || []).some((a) => a.saleId === rec.id));
