@@ -1,0 +1,27 @@
+<title>进销账</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="ledger.css">
+<!-- claude.ai 上发布用的入口：平台会自动包上 doctype / head / body，所以这里不写这几个标签。
+     自己部署的服务用同目录的 index.html。两者共用 app.js / core.js / store.js / ledger.css。 -->
+<main id="app">
+  <section class="page" id="page-home"></section>
+  <section class="page" id="page-trade" hidden></section>
+  <section class="page" id="page-receipt" hidden></section>
+  <section class="page" id="page-company" hidden></section>
+  <section class="page" id="page-settings" hidden></section>
+</main>
+
+<nav class="tabbar"></nav>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-mask" data-close></div>
+  <div class="sheet-body" role="dialog" aria-modal="true">
+    <div class="sheet-hd"><h2 id="sheet-title"></h2><button class="x" data-close aria-label="关闭">✕</button></div>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
+<div id="ask" class="ask" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="app.js"></script>

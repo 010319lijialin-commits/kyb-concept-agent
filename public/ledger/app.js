@@ -4,8 +4,8 @@ import {
   previewWithdrawal, previewTaxRun, overdueUntaxed, receiptGross,
   saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, monthEnd, prevMonth,
 } from './core.js';
+import { createStore } from './store.js';
 
-const KEY = 'ledger.v1';
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const today = () => {
@@ -16,22 +16,69 @@ const y = (cents) => '¥' + fmt(cents);
 const yy = (yuan) => y(toCents(yuan));
 
 // ---------- 存储 ----------
-let state = load();
+// 示例模式：第一次打开、账本还是空的时候先放一套示例数据给人点着看，示例里的操作一律不保存。
+// mine 始终是用户自己的那本账；示例模式下 state 指向示例，mine 原样留着。
+let syncStatus = 'local';
+const store = createStore({
+  onStatus: (s) => { syncStatus = s; paintSync(); },
+  onRemote: (s) => { mine = hydrate(s); if (!demoMode) { state = mine; recompute(); } },
+});
+const hydrate = (s) => ({ ...emptyState(), ...s });
+const hasData = (s) => Boolean(s && (s.purchases?.length || s.sales?.length || s.receipts?.length));
+
+let mine = hydrate(store.local() || {});
+let demoMode = !hasData(mine);
+let state = demoMode ? demoState() : mine;
 let R = compute(state);
 let tab = 'home';
 let tradeView = 'sales';
 
-function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return { ...emptyState(), ...JSON.parse(raw) };
-  } catch { /* 隐私模式等情况读不到，就从空账本开始 */ }
-  return emptyState();
-}
+function recompute() { R = compute(state); render(); }
+
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('本地保存失败，记得导出备份'); }
-  R = compute(state);
-  render();
+  recompute();
+  if (!demoMode) store.save(state);
+}
+
+function enterDemo() { demoMode = true; state = demoState(); tab = 'home'; recompute(); }
+function exitDemo() {
+  demoMode = false;
+  state = mine;
+  tab = 'home';
+  recompute();
+  window.scrollTo(0, 0);
+  toast(hasData(mine) ? '已回到你自己的账' : '开始记账：先记一笔进货或销售');
+}
+
+store.connect().then((remote) => {
+  if (remote) {
+    mine = hydrate(remote);
+    if (demoMode && hasData(mine)) demoMode = false;
+    if (!demoMode) { state = mine; recompute(); }
+  } else if (remote === null && hasData(mine)) {
+    store.save(mine); // 云端还没有，把本机已有的账传上去
+  }
+});
+
+const SYNC_TEXT = {
+  local: ['仅存在本机', 'muted'],
+  'local-failed': ['本机保存失败，请导出备份', 'bad'],
+  saving: ['保存中…', 'muted'],
+  saved: ['已存到你的账号', 'ok'],
+  error: ['云端保存失败，已留在本机', 'bad'],
+  full: ['云端空间已满，请导出备份', 'bad'],
+};
+function syncPill() {
+  if (demoMode) return '<span class="sync muted">示例，不保存</span>';
+  const [t, c] = SYNC_TEXT[syncStatus] || SYNC_TEXT.local;
+  return `<span class="sync ${c}">${t}</span>`;
+}
+function paintSync() { document.querySelectorAll('[data-sync]').forEach((el) => (el.innerHTML = syncPill())); }
+
+function demoBanner() {
+  if (!demoMode) return '';
+  return `<div class="demo-bar"><div><b>这是示例数据</b><span>随便点、随便改，都不会保存。</span></div>
+    <button class="btn sm primary" data-act="exit-demo">${hasData(mine) ? '回到我的账' : '开始记自己的账'}</button></div>`;
 }
 
 // ---------- 通用 ----------
@@ -42,6 +89,38 @@ function toast(msg) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => (t.hidden = true), 2200);
 }
+
+// 页面内的确认框（claude.ai 里打开时浏览器自带的 confirm() 不弹）
+function ask(message, okLabel = '确定', danger = false) {
+  return new Promise((resolve) => {
+    const box = $('#ask');
+    box.innerHTML = `<div class="ask-mask"></div><div class="ask-body" role="alertdialog" aria-modal="true">
+      <p>${esc(message)}</p>
+      <div class="two"><button class="btn" data-ans="0">取消</button><button class="btn ${danger ? 'danger-solid' : 'primary'}" data-ans="1">${esc(okLabel)}</button></div></div>`;
+    box.hidden = false;
+    const done = (v) => { box.hidden = true; box.innerHTML = ''; resolve(v); };
+    box.querySelector('[data-ans="1"]').focus();
+    box.onclick = (e) => {
+      const b = e.target.closest('[data-ans]');
+      if (b) done(b.dataset.ans === '1');
+      else if (e.target.classList.contains('ask-mask')) done(false);
+    };
+  });
+}
+
+const ICON = {
+  home: '<path d="M3 20h18"/><path d="M6 16v-5M11 16V6M16 16v-8"/>',
+  trade: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9"/>',
+  receipt: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>',
+  company: '<path d="M4 21V4.5L12 2v19M12 8h7.5v13M2 21h20"/><path d="M7 7.5h2M7 11.5h2M7 15.5h2M15 12h2M15 16h2"/>',
+  settings: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  in: '<path d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/><path d="M4 15v4.5h16V15"/>',
+  out: '<path d="M12 14V3M7.5 7.5 12 3l4.5 4.5"/><path d="M4 15v4.5h16V15"/>',
+  cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/>',
+  withdraw: '<rect x="3" y="3.5" width="18" height="10" rx="2"/><path d="M12 8v12.5M8 16.5l4 4 4-4"/>',
+  tax: '<path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z"/><path d="M9 7.5h6M9 11h6M9 14.5h3"/>',
+};
+const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
 
 function openSheet(title, html, onMount) {
   $('#sheet-title').textContent = title;
@@ -88,6 +167,8 @@ function render() {
   ({ home: renderHome, trade: renderTrade, receipt: renderReceipts, company: renderCompany, settings: renderSettings })[tab]();
 }
 
+document.querySelector('.tabbar').innerHTML = [['home', '总览'], ['trade', '进销'], ['receipt', '回款'], ['company', '公司账户'], ['settings', '设置']]
+  .map(([k, l]) => `<button data-tab="${k}">${icon(k)}<span>${l}</span></button>`).join('');
 document.querySelector('.tabbar').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-tab]');
   if (!b) return;
@@ -100,9 +181,9 @@ function reminders() {
   const out = [];
   const od = overdueUntaxed(R, today());
   if (od.amount > 0)
-    out.push(`<div class="alert warn"><span>公司账户有 ${od.count} 笔 ${od.cutoff.slice(0, 7)} 及以前的回款共 ${y(od.amount)} 还没扣增值税</span><button class="btn sm" data-act="taxrun">去扣税</button></div>`);
-  for (const i of R.issues) out.push(`<div class="alert bad"><span>⚠️ ${esc(i)}</span></div>`);
-  return out.join('');
+    out.push(`<div class="alert warn"><span>公司账户有 ${od.count} 笔 ${od.cutoff.slice(0, 7)} 及以前的回款共 ${y(od.amount)} 还没扣税</span><button class="btn sm" data-act="taxrun">去扣税</button></div>`);
+  for (const i of R.issues) out.push(`<div class="alert bad"><span>${esc(i)}</span></div>`);
+  return demoBanner() + out.join('');
 }
 
 function renderHome() {
@@ -113,7 +194,7 @@ function renderHome() {
   const owing = R.customers.filter((c) => c.outstanding > 0);
 
   $('#page-home').innerHTML = `
-    <header class="hdr"><div><h1>进销账</h1><p class="sub">上游进货 → 卖给下游 → 回款 → 扣税提现</p></div></header>
+    <header class="hdr"><div><h1>进销账</h1><p class="sub">上游进货 → 卖给下游 → 回款 → 扣税提现</p></div><span data-sync>${syncPill()}</span></header>
     ${reminders()}
     <div class="card hero">
       <div class="k">公司账户里现在最多能提到手</div>
@@ -125,10 +206,10 @@ function renderHome() {
       </div>
     </div>
     <div class="quick">
-      <button class="btn" data-act="purchase"><span>📥</span>记进货</button>
-      <button class="btn" data-act="sale"><span>📤</span>记销售</button>
-      <button class="btn" data-act="receipt"><span>💰</span>记回款</button>
-      <button class="btn" data-act="withdraw"><span>🏧</span>提现</button>
+      <button class="btn" data-act="purchase">${icon('in')}记进货</button>
+      <button class="btn" data-act="sale">${icon('out')}记销售</button>
+      <button class="btn" data-act="receipt">${icon('cash')}记回款</button>
+      <button class="btn" data-act="withdraw">${icon('withdraw')}提现</button>
     </div>
     <div class="grid">
       <div class="stat tap" data-goto="receipt"><div class="k">下游还欠</div><div class="v num">${y(T.receivable)}</div><div class="d">${owing.length} 家没回清</div></div>
@@ -144,11 +225,11 @@ function renderHome() {
         <li class="item" data-act="receipt" data-customer="${esc(c.name)}">
           <div class="l"><div class="t">${esc(c.name)}</div><div class="s">最早一笔 ${esc(c.oldest)} 起没回 · 共卖 ${y(c.total)}</div></div>
           <div class="r"><div class="amt num">${y(c.outstanding)}</div><div class="s">点这里记回款</div></div>
-        </li>`).join('')}</ul>` : '<div class="empty">没有欠款 🎉</div>'}
+        </li>`).join('')}</ul>` : '<div class="empty">没有欠款</div>'}
     </div>
     ${state.sales.length || state.purchases.length ? '' : `
     <div class="card explain">
-      <p><b>第一次用？</b>可以先去「设置」里装一套示例数据看看效果，再清空开始记自己的。</p>
+      <p><b>从哪开始：</b>先记一笔进货（从上游进了什么、多少钱），再记卖给下游的销售，下游打钱来时记回款。</p>
     </div>`}
   `;
 }
@@ -188,7 +269,7 @@ function renderTrade() {
   $('#page-trade').innerHTML = `
     <header class="hdr"><div><h1>进销</h1><p class="sub">从上游进、卖给下游，每笔销售就是一笔应收</p></div>
       <div class="btn-row"><button class="btn sm" data-act="purchase">+ 进货</button><button class="btn sm primary" data-act="sale">+ 销售</button></div></header>
-    ${seg}${body}`;
+    ${demoBanner()}${seg}${body}`;
 }
 
 function renderReceipts() {
@@ -208,6 +289,7 @@ function renderReceipts() {
   $('#page-receipt').innerHTML = `
     <header class="hdr"><div><h1>回款</h1><p class="sub">一笔回款可以同时核销多笔销售</p></div>
       <button class="btn sm primary" data-act="receipt">+ 回款</button></header>
+    ${demoBanner()}
     <div class="card">
       <h3>应收 <span class="muted">共 ${y(R.totals.receivable)}</span></h3>
       ${owing.length ? `<ul class="list">${owing.map((c) => `
@@ -237,7 +319,7 @@ function renderCompany() {
         <div class="ln"><span>未扣税部分，扣完税再提</span><span class="num">${y(T.untaxedBal - T.pendingTax)}</span></div>
         <div class="ln total"><span>最多能提到手</span><span class="num">${y(T.maxWithdrawNet)}</span></div>
       </div>
-      <div class="two"><button class="btn" data-act="taxrun">🧾 月度扣税</button><button class="btn primary" data-act="withdraw">🏧 提现</button></div>
+      <div class="two"><button class="btn" data-act="taxrun">${icon('tax')}月度扣税</button><button class="btn primary" data-act="withdraw">${icon('withdraw')}提现</button></div>
     </div>
     <div class="card">
       <h3>每笔回款的状态 <span class="muted">先进先出</span></h3>
@@ -261,7 +343,8 @@ function renderCompany() {
 function renderSettings() {
   const s = R.settings;
   $('#page-settings').innerHTML = `
-    <header class="hdr"><div><h1>设置</h1><p class="sub">税率、备份</p></div></header>
+    <header class="hdr"><div><h1>设置</h1><p class="sub">税率、备份</p></div><span data-sync>${syncPill()}</span></header>
+    ${demoBanner()}
     <div class="card">
       <h3>扣税怎么算</h3>
       <p class="small muted" style="margin-top:0">税 = 回款额 × 回款税点 + 差价（售价 − 进价）× 差价税率</p>
@@ -274,12 +357,15 @@ function renderSettings() {
     </div>
     <div class="card">
       <h3>备份</h3>
-      <p class="small muted" style="margin-top:0">数据只存在这台手机 / 电脑的浏览器里。清缓存或换设备前一定先导出。</p>
+      <p class="small muted" style="margin-top:0">${store.cloud
+        ? '账存在你 claude.ai 账号下的私有空间，只有你自己看得到；换手机、换电脑登录同一个账号也在。导出一份留底更安心。'
+        : '数据只存在这台手机 / 电脑的浏览器里。清缓存或换设备前一定先导出。'}</p>
       <div class="btn-row"><button class="btn" id="exp">导出 JSON</button><button class="btn" id="exp-csv">导出销售明细 CSV</button><label class="btn">导入 JSON<input type="file" accept="application/json" id="imp" hidden></label></div>
     </div>
     <div class="card">
       <h3>示例 / 清空</h3>
-      <div class="btn-row"><button class="btn" id="demo">装入示例数据</button><button class="btn danger" id="wipe">清空全部</button></div>
+      <div class="btn-row">${demoMode ? '' : '<button class="btn" id="demo">看示例数据</button>'}<button class="btn danger" id="wipe">清空我的账</button></div>
+      <p class="small muted" style="margin-bottom:0">看示例不会动你自己的账，看完点「回到我的账」。</p>
     </div>
     <div class="card explain">
       <h3 style="color:var(--text)">这本账是怎么记的</h3>
@@ -310,7 +396,7 @@ function renderSettings() {
     save();
     toast('税率已更新');
   };
-  $('#exp').onclick = () => download(`进销账-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
+  $('#exp').onclick = () => download(`进销账-${today()}.json`, JSON.stringify(mine, null, 2));
   $('#exp-csv').onclick = exportCsv;
   $('#imp').onchange = async (e) => {
     const f = e.target.files[0];
@@ -318,31 +404,35 @@ function renderSettings() {
     try {
       const data = JSON.parse(await f.text());
       if (!Array.isArray(data.sales) || !Array.isArray(data.receipts)) throw new Error('格式不对');
-      if (!confirm('导入会覆盖当前全部数据，确定？')) return;
-      state = { ...emptyState(), ...data };
+      if (hasData(mine) && !(await ask('导入会覆盖你现在的整本账，确定？', '覆盖导入', true))) return;
+      mine = hydrate(data);
+      demoMode = false;
+      state = mine;
       save();
       toast('已导入');
-    } catch (err) { alert('导入失败：' + err.message); }
+    } catch (err) { toast('导入失败：' + err.message); }
+    e.target.value = '';
   };
-  $('#demo').onclick = () => {
-    if ((state.sales.length || state.receipts.length) && !confirm('示例数据会覆盖当前全部数据，确定？')) return;
-    state = demoState();
-    save();
-    tab = 'home';
-    render();
-    toast('已装入示例数据');
-  };
-  $('#wipe').onclick = () => {
-    if (!confirm('清空全部记录？建议先导出备份。')) return;
-    state = { ...emptyState(), settings: state.settings };
+  if ($('#demo')) $('#demo').onclick = enterDemo;
+  $('#wipe').onclick = async () => {
+    if (!(await ask('清空你自己的整本账？清空前建议先导出备份。', '清空', true))) return;
+    mine = { ...emptyState(), settings: mine.settings };
+    demoMode = false;
+    state = mine;
     save();
     toast('已清空');
   };
 }
 
-function download(name, text, type) {
+// claude.ai 里走平台的保存对话框；自己部署时用普通下载链接
+async function download(name, text) {
+  const dl = window.claude?.use ? await window.claude.use('downloads') : null;
+  if (dl) {
+    try { await dl.save({ filename: name, data: text }); toast('已导出'); } catch (e) { if (e?.code !== 'declined') toast('导出失败：' + (e?.message || '这里不支持导出')); }
+    return;
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.href = URL.createObjectURL(new Blob([text]));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -353,7 +443,7 @@ function exportCsv() {
   for (const s of [...R.sales].sort((a, b) => (a.date < b.date ? -1 : 1)))
     rows.push([s.date, s.customer, s.product, s.qty, s.price, toYuan(s.total), toYuan(s.settled), toYuan(s.outstanding)]);
   const csv = '﻿' + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-  download(`销售明细-${today()}.csv`, csv, 'text/csv');
+  download(`销售明细-${today()}.csv`, csv);
 }
 
 // ---------- 点击分发 ----------
@@ -370,6 +460,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (a === 'receipt') return receiptForm(null, act.dataset.customer);
     if (a === 'taxrun') return taxRunForm();
     if (a === 'withdraw') return withdrawForm();
+    if (a === 'exit-demo') return exitDemo();
   }
   const ed = e.target.closest('[data-edit]');
   if (ed) {
@@ -429,7 +520,7 @@ function purchaseForm(rec) {
       if (!r.date || !r.supplier || !r.product || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、上游、品种、数量、单价都要填');
       upsert(state.purchases, r); save(); closeSheet(); toast('已记进货');
     };
-    if (rec) $('#f-del', root).onclick = () => { if (confirm('删除这笔进货？')) { remove(state.purchases, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔进货？', '删除', true)) { remove(state.purchases, rec.id); save(); closeSheet(); } };
   });
 }
 
@@ -484,10 +575,10 @@ function saleForm(rec) {
       if (s && s.settled && r.customer !== rec.customer) return toast('这笔已有回款，不能换下游；先删回款');
       upsert(state.sales, r); save(); closeSheet(); toast('已记销售');
     };
-    if (rec) $('#f-del', root).onclick = () => {
+    if (rec) $('#f-del', root).onclick = async () => {
       const used = state.receipts.filter((x) => (x.allocations || []).some((a) => a.saleId === rec.id));
       if (used.length) return toast(`有 ${used.length} 笔回款核销了这笔销售，先删或改那些回款`);
-      if (confirm('删除这笔销售？')) { remove(state.sales, rec.id); save(); closeSheet(); }
+      if (await ask('删除这笔销售？', '删除', true)) { remove(state.sales, rec.id); save(); closeSheet(); }
     };
   });
 }
@@ -594,7 +685,7 @@ function receiptForm(rec, presetCustomer) {
       upsert(state.receipts, r); save(); closeSheet();
       toast(r.allocations.length > 1 ? `已记回款，合并核销 ${r.allocations.length} 笔销售` : '已记回款');
     };
-    if (rec) $('#f-del', root).onclick = () => { if (confirm('删除这笔回款？后面的扣税、提现会自动重算。')) { remove(state.receipts, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔回款？后面的扣税、提现会自动重算。', '删除', true)) { remove(state.receipts, rec.id); save(); closeSheet(); } };
   });
 }
 
@@ -629,7 +720,7 @@ function taxRunForm(rec) {
       if (!rec && !previewTaxRun(others, r.cutoff, r.date).details.length) return toast('没有要扣税的余额');
       upsert(state.taxRuns, r); save(); closeSheet(); toast('已扣税');
     };
-    if (rec) $('#f-del', root).onclick = () => { if (confirm('删除这次扣税？对应的钱会变回「未扣税」。')) { remove(state.taxRuns, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这次扣税？对应的钱会变回「未扣税」。', '删除', true)) { remove(state.taxRuns, rec.id); save(); closeSheet(); } };
   });
 }
 
@@ -675,7 +766,7 @@ function withdrawForm(rec) {
       upsert(state.withdrawals, r); save(); closeSheet();
       toast(w.tax ? `已提现，扣税 ${y(w.tax)}` : '已提现');
     };
-    if (rec) $('#f-del', root).onclick = () => { if (confirm('删除这笔提现？')) { remove(state.withdrawals, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔提现？', '删除', true)) { remove(state.withdrawals, rec.id); save(); closeSheet(); } };
   });
 }
 

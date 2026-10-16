@@ -1,6 +1,6 @@
 # 🌱 枝 · 思维树 + 表达练习
 
-> 📒 同一个服务里还有一个独立的小工具 **进销账**（`/ledger/`）：医药销售的进货 / 销售 / 合并回款 / 公司账户月度扣税 / 提现算税。说明见 [`public/ledger/README.md`](public/ledger/README.md)。
+> 📒 同一个服务里还有一个独立的小工具 **进销账**（`/ledger/`）：医药销售的进货 / 销售 / 合并回款 / 公司账户月度扣税 / 提现算税。直接打开：https://claude.ai/artifact/GkaFMssXvTfsCCHEFCgBTh ，说明见 [`public/ledger/README.md`](public/ledger/README.md)。
 
 一个手机浏览器就能用的网页，两件事拧成一件：
 
