@@ -15,11 +15,12 @@ export const DEFAULT_SETTINGS = {
 
 export function emptyState() {
   return {
-    version: 2,
+    version: 3,
     settings: { ...DEFAULT_SETTINGS },
     purchases: [],   // { id, date, supplier, product, qty, price, note }
     sales: [],       // { id, date, customer, product, qty, price, cost(单位进价), note }
     receipts: [],    // { id, date, customer, account, amount(到账), allocations:[{saleId, amount(核销)}], note }
+    payments: [],    // { id, date, supplier, account, amount(打出去的钱), allocations:[{purchaseId, amount}], note }
     taxRuns: [],     // { id, date, cutoff, note }  月度扣税：扣掉 cutoff 当天及之前到公司的未税回款
     withdrawals: [], // { id, date, net(想拿到手的钱), note }
   };
@@ -153,10 +154,55 @@ export function allocationTax(state, allocations) {
 export const receiptGross = (r) =>
   toYuan((r.allocations || []).reduce((s, a) => s + toCents(a.amount), 0));
 
+// ---------- 应付：每笔进货 = 欠上游的钱 ----------
+
+function paidByPurchase(state, excludePaymentId) {
+  const m = new Map();
+  for (const p of state.payments || []) {
+    if (p.id === excludePaymentId) continue;
+    for (const a of p.allocations || []) m.set(a.purchaseId, (m.get(a.purchaseId) || 0) + toCents(a.amount));
+  }
+  return m;
+}
+
+// 某个上游还没付清的进货，按日期先后排
+export function openPurchasesFor(state, supplier, excludePaymentId) {
+  const paid = paidByPurchase(state, excludePaymentId);
+  return state.purchases
+    .filter((p) => p.supplier === supplier)
+    .map((p) => {
+      const total = toCents(purchaseAmount(p));
+      const done = paid.get(p.id) || 0;
+      return { purchase: p, total, paid: done, outstanding: total - done };
+    })
+    .filter((x) => x.outstanding > 0)
+    .sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id));
+}
+
+// 打给上游的钱按先进先出分到没付清的进货上
+export function autoAllocatePayment(state, supplier, yuan, excludePaymentId) {
+  let left = toCents(yuan);
+  const out = [];
+  for (const o of openPurchasesFor(state, supplier, excludePaymentId)) {
+    if (left <= 0) break;
+    const take = Math.min(left, o.outstanding);
+    out.push({ purchaseId: o.purchase.id, amount: toYuan(take) });
+    left -= take;
+  }
+  return out;
+}
+
+export const paymentAllocated = (p) =>
+  toYuan((p.allocations || []).reduce((s, a) => s + toCents(a.amount), 0));
+
 // ---------- 公司账户：按"批次"记 ----------
-// 每笔回到公司的钱是一个批次：{ remaining, taxed, rate }，rate 由它核销的销售差价决定。
-// 月度扣税：把截止日前的未税批次扣税，标成已税。
-// 提现：先花已税批次（不用再扣），不够再动未税批次（边提边扣税）。
+// 每笔回到公司的钱是一个批次：{ remaining 还剩多少钱, taxDue 还欠多少税, taxed }。
+// 税是跟着销售定死的（回款额 × 税点 + 差价 × 税率），用这笔钱付了上游货款，税也一分不少。
+// - 月度扣税：截止日前的未税批次，把欠的税交掉，标成已税。
+// - 提现：先花已税批次（不用再扣），不够再动未税批次——提多少，按比例当场把对应的税交掉。
+// - 付上游：先用未税批次里"交完税还剩"的那部分，再用已税批次，最后才动留着交税的钱（会提醒）。
+
+const freeOf = (lot) => (lot.taxed ? lot.remaining : Math.max(0, lot.remaining - lot.taxDue));
 
 function withdrawFromLots(lots, netCents) {
   let need = netCents;
@@ -176,17 +222,17 @@ function withdrawFromLots(lots, netCents) {
 
   for (const lot of lots) {
     if (need <= 0) break;
-    if (lot.taxed || lot.remaining <= 0) continue;
-    const lotTax = taxOn(lot.remaining, lot.rate);
-    const lotNet = lot.remaining - lotTax;
+    if (lot.taxed) continue;
+    const free = freeOf(lot);
+    if (free <= 0) continue;
     let g, t, n;
-    if (lotNet <= need) {
-      g = lot.remaining; t = lotTax; n = lotNet;
+    if (free <= need) {
+      n = free; t = lot.taxDue; g = n + t;
     } else {
-      g = Math.min(lot.remaining, Math.round(need / (1 - lot.rate)));
-      t = g - need; n = need;
+      n = need; t = Math.round((need * lot.taxDue) / free); g = n + t;
     }
     lot.remaining -= g;
+    lot.taxDue -= t;
     need -= n;
     gross += g;
     tax += t;
@@ -196,13 +242,35 @@ function withdrawFromLots(lots, netCents) {
   return { gross, tax, net: netCents - need, shortfall: need, parts };
 }
 
-const TYPE_ORDER = { receipt: 0, taxRun: 1, withdrawal: 2 };
+// 从公司账户划走一笔钱（付上游 / 补交税），按顺序取，返回实际取到多少、动用了多少留着交税的钱
+function drainLots(lots, cents, order) {
+  let need = cents;
+  let reserveUsed = 0;
+  for (const step of order) {
+    for (const lot of lots) {
+      if (need <= 0) break;
+      let avail;
+      if (step === 'untaxedFree') avail = lot.taxed ? 0 : freeOf(lot);
+      else if (step === 'taxed') avail = lot.taxed ? lot.remaining : 0;
+      else avail = lot.taxed ? 0 : lot.remaining; // untaxedReserve
+      const take = Math.min(avail, need);
+      if (take <= 0) continue;
+      lot.remaining -= take;
+      need -= take;
+      if (step === 'untaxedReserve') reserveUsed += take;
+    }
+  }
+  return { taken: cents - need, shortfall: need, reserveUsed };
+}
+
+const TYPE_ORDER = { receipt: 0, payment: 1, taxRun: 2, withdrawal: 3 };
 
 export function compute(state) {
   const settings = normSettings(state.settings);
   const issues = [];
   const avg = avgCosts(state);
   const rates = saleRates(state);
+  const payments = state.payments || [];
 
   // ---- 销售 & 应收 ----
   const settled = settledBySale(state);
@@ -222,6 +290,19 @@ export function compute(state) {
   for (const r of state.receipts)
     for (const a of r.allocations || [])
       if (!salesById.has(a.saleId)) issues.push(`回款（${r.date} ${r.customer}）指向了已删除的销售`);
+
+  // ---- 进货 & 应付 ----
+  const paid = paidByPurchase(state);
+  const purchases = state.purchases.map((p) => {
+    const total = toCents(purchaseAmount(p));
+    const done = paid.get(p.id) || 0;
+    if (done > total) issues.push(`进货「${p.supplier} ${p.product}」付款超过了进货额`);
+    return { ...p, total, paid: done, outstanding: Math.max(0, total - done) };
+  });
+  const purchasesById = new Map(purchases.map((p) => [p.id, p]));
+  for (const pay of payments)
+    for (const a of pay.allocations || [])
+      if (!purchasesById.has(a.purchaseId)) issues.push(`付款（${pay.date} ${pay.supplier}）指向了已删除的进货`);
 
   // 没对上销售的那部分回款，按这个下游（没有就按全部）销售的平均税负估
   const avgRate = (list) => {
@@ -260,21 +341,26 @@ export function compute(state) {
     if (x.stock < 0) issues.push(`「${x.name}」卖出数量比进货多 ${-x.stock}，少录了进货？`);
   }
 
-  // ---- 按时间重放公司账户 ----
+  // ---- 按时间重放两个账户 ----
   const events = [
     ...state.receipts.map((r) => ({ type: 'receipt', date: r.date, id: r.id, rec: r })),
+    ...payments.map((p) => ({ type: 'payment', date: p.date, id: p.id, rec: p })),
     ...state.taxRuns.map((t) => ({ type: 'taxRun', date: t.date, id: t.id, rec: t })),
     ...state.withdrawals.map((w) => ({ type: 'withdrawal', date: w.date, id: w.id, rec: w })),
   ].sort((a, b) => cmp(a.date, b.date) || TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || cmp(a.id, b.id));
 
   const lots = [];
-  const flow = [];
+  const flow = [];          // 公司账户流水
+  const personalFlow = [];  // 个人账户流水
   const receipts = new Map();
+  const paymentsOut = new Map();
   const taxRuns = new Map();
   const withdrawals = new Map();
-  let personalIn = 0, personalTax = 0, companyIn = 0, taxRunTotal = 0, withdrawTax = 0, withdrawNet = 0;
+  let personalIn = 0, personalTax = 0, personalPaid = 0, companyIn = 0, companyPaid = 0;
+  let taxRunTotal = 0, withdrawTax = 0, withdrawNet = 0;
 
   const balance = () => lots.reduce((s, l) => s + l.remaining, 0);
+  const personalBal = () => personalIn + withdrawNet - personalPaid;
 
   for (const ev of events) {
     const r = ev.rec;
@@ -287,31 +373,56 @@ export function compute(state) {
         personalIn += amount;
         personalTax += tax;
         receipts.set(r.id, { ...r, amountC: amount, grossC: gross, taxC: tax, ruleTax, unallocated: Math.max(0, amount - gross) });
+        personalFlow.push({ date: r.date, kind: '回款', text: `${r.customer} 回款（已扣税 ¥${fmt(tax)}）`, delta: amount, balance: personalBal(), ref: r.id, edit: 'receipt' });
       } else {
         const unallocated = Math.max(0, amount - gross);
-        const lotTax = ruleTax + taxOn(unallocated, customerRate(r.customer));
-        const rate = amount ? Math.min(lotTax / amount, 0.99) : 0;
-        lots.push({ receiptId: r.id, date: r.date, customer: r.customer, original: amount, remaining: amount, taxed: false, taxedBy: null, rate });
+        const lotTax = Math.min(amount, ruleTax + taxOn(unallocated, customerRate(r.customer)));
+        lots.push({ receiptId: r.id, date: r.date, customer: r.customer, original: amount, remaining: amount, taxDue: lotTax, taxOriginal: lotTax, taxed: false, taxedBy: null });
         companyIn += amount;
-        receipts.set(r.id, { ...r, amountC: amount, grossC: gross, taxC: 0, ruleTax: lotTax, unallocated, rate });
-        flow.push({ date: r.date, kind: '回款', text: `${r.customer} 回款（未扣税）`, delta: amount, balance: balance(), ref: r.id });
+        receipts.set(r.id, { ...r, amountC: amount, grossC: gross, taxC: 0, ruleTax: lotTax, unallocated });
+        flow.push({ date: r.date, kind: '回款', text: `${r.customer} 回款（未扣税，以后要扣 ¥${fmt(lotTax)}）`, delta: amount, balance: balance(), ref: r.id, edit: 'receipt' });
+      }
+    } else if (ev.type === 'payment') {
+      const amount = toCents(r.amount);
+      const allocated = toCents(paymentAllocated(r));
+      if (r.account === ACCOUNT.PERSONAL) {
+        personalPaid += amount;
+        paymentsOut.set(r.id, { ...r, amountC: amount, allocatedC: allocated, shortfall: 0, reserveUsed: 0 });
+        personalFlow.push({ date: r.date, kind: '付款', text: `付 ${r.supplier} 货款`, delta: -amount, balance: personalBal(), ref: r.id, edit: 'payment' });
+      } else {
+        const res = drainLots(lots, amount, ['untaxedFree', 'taxed', 'untaxedReserve']);
+        companyPaid += res.taken;
+        if (res.shortfall > 0) issues.push(`${r.date} 付 ${r.supplier} ¥${fmt(amount)}：公司账户当时只有 ¥${fmt(res.taken)}`);
+        paymentsOut.set(r.id, { ...r, amountC: amount, allocatedC: allocated, ...res });
+        flow.push({
+          date: r.date, kind: '付款',
+          text: `付 ${r.supplier} 货款${res.reserveUsed ? `（动用了留着交税的 ¥${fmt(res.reserveUsed)}）` : ''}`,
+          delta: -res.taken, balance: balance(), ref: r.id, edit: 'payment',
+        });
       }
     } else if (ev.type === 'taxRun') {
-      let total = 0, base = 0;
+      let total = 0, base = 0, unpaid = 0;
       const details = [];
       for (const lot of lots) {
-        if (lot.taxed || lot.remaining <= 0 || lot.date > r.cutoff) continue;
-        const t = taxOn(lot.remaining, lot.rate);
-        details.push({ receiptId: lot.receiptId, base: lot.remaining, tax: t, rate: lot.rate });
+        if (lot.taxed || lot.date > r.cutoff) continue;
+        if (lot.taxDue <= 0) { lot.taxed = true; lot.taxedBy = r.id; continue; }
+        const due = lot.taxDue;
         base += lot.remaining;
-        total += t;
-        lot.remaining -= t;
-        lot.taxed = true;
-        lot.taxedBy = r.id;
+        const fromLot = Math.min(lot.remaining, due);
+        lot.remaining -= fromLot;
+        // 这笔钱被付货款花掉了一部分，剩下不够交税：从账上别的钱里补
+        const extra = due - fromLot > 0 ? drainLots(lots.filter((l) => l !== lot), due - fromLot, ['taxed', 'untaxedFree']).taken : 0;
+        const paidTax = fromLot + extra;
+        lot.taxDue = due - paidTax;
+        if (lot.taxDue > 0) unpaid += lot.taxDue;
+        else { lot.taxed = true; lot.taxedBy = r.id; }
+        details.push({ receiptId: lot.receiptId, base: fromLot + lot.remaining, tax: paidTax });
+        total += paidTax;
       }
+      if (unpaid > 0) issues.push(`${r.date} 月度扣税：公司账户钱不够，还有 ¥${fmt(unpaid)} 税没交上`);
       taxRunTotal += total;
-      taxRuns.set(r.id, { ...r, base, tax: total, details });
-      flow.push({ date: r.date, kind: '扣税', text: `月度扣税（${r.cutoff} 前的未税回款 ¥${fmt(base)}）`, delta: -total, balance: balance(), ref: r.id });
+      taxRuns.set(r.id, { ...r, base, tax: total, unpaid, details });
+      flow.push({ date: r.date, kind: '扣税', text: `月度扣税（${r.cutoff} 前的未税回款）`, delta: -total, balance: balance(), ref: r.id, edit: 'taxrun' });
     } else if (ev.type === 'withdrawal') {
       const want = toCents(r.net);
       const res = withdrawFromLots(lots, want);
@@ -322,17 +433,20 @@ export function compute(state) {
       flow.push({
         date: r.date, kind: '提现',
         text: res.tax ? `提现到手 ¥${fmt(res.net)}（其中动用未税款，扣税 ¥${fmt(res.tax)}）` : `提现到手 ¥${fmt(res.net)}（已税款，不用再扣）`,
-        delta: -res.gross, balance: balance(), ref: r.id,
+        delta: -res.gross, balance: balance(), ref: r.id, edit: 'withdraw',
       });
+      personalFlow.push({ date: r.date, kind: '提现', text: '从公司账户提出', delta: res.net, balance: personalBal(), ref: r.id, edit: 'withdraw' });
     }
   }
 
   const taxedBal = lots.filter((l) => l.taxed).reduce((s, l) => s + l.remaining, 0);
   const untaxedBal = lots.filter((l) => !l.taxed).reduce((s, l) => s + l.remaining, 0);
-  const pendingTax = lots.filter((l) => !l.taxed).reduce((s, l) => s + taxOn(l.remaining, l.rate), 0);
-  const maxWithdrawNet = lots.reduce((s, l) => s + (l.remaining <= 0 ? 0 : l.taxed ? l.remaining : l.remaining - taxOn(l.remaining, l.rate)), 0);
+  const pendingTax = lots.filter((l) => !l.taxed).reduce((s, l) => s + l.taxDue, 0);
+  const maxWithdrawNet = lots.reduce((s, l) => s + freeOf(l), 0);
+  const taxGap = Math.max(0, pendingTax - untaxedBal);
+  if (taxGap > 0) issues.push(`公司账户里的钱不够交以后的税，还差 ¥${fmt(taxGap)}（付上游时用掉了留着交税的钱）`);
 
-  // ---- 往来：每个下游欠多少 ----
+  // ---- 往来：每个下游欠多少、欠每个上游多少 ----
   const customers = new Map();
   for (const s of sales) {
     const c = customers.get(s.customer) || { name: s.customer, total: 0, settled: 0, outstanding: 0, oldest: null };
@@ -340,48 +454,70 @@ export function compute(state) {
     if (s.outstanding > 0 && (!c.oldest || s.date < c.oldest)) c.oldest = s.date;
     customers.set(s.customer, c);
   }
+  const suppliers = new Map();
+  for (const p of purchases) {
+    const c = suppliers.get(p.supplier) || { name: p.supplier, total: 0, paid: 0, outstanding: 0, oldest: null };
+    c.total += p.total; c.paid += p.paid; c.outstanding += p.outstanding;
+    if (p.outstanding > 0 && (!c.oldest || p.date < c.oldest)) c.oldest = p.date;
+    suppliers.set(p.supplier, c);
+  }
 
   const revenue = sales.reduce((s, x) => s + x.total, 0);
   const receivable = sales.reduce((s, x) => s + x.outstanding, 0);
   const receivableTax = sales.reduce((s, x) => s + taxOn(x.outstanding, x.rate), 0);
-  const purchaseTotal = state.purchases.reduce((s, p) => s + toCents(purchaseAmount(p)), 0);
+  const purchaseTotal = purchases.reduce((s, p) => s + p.total, 0);
+  const payable = purchases.reduce((s, p) => s + p.outstanding, 0);
   const taxPaid = personalTax + taxRunTotal + withdrawTax;
 
   return {
     settings,
     sales,
     salesById,
+    purchases,
+    purchasesById,
     receipts,
+    payments: paymentsOut,
     taxRuns,
     withdrawals,
     lots,
     flow,
+    personalFlow,
     products: [...products.values()],
     customers: [...customers.values()].sort((a, b) => b.outstanding - a.outstanding),
+    suppliers: [...suppliers.values()].sort((a, b) => b.outstanding - a.outstanding),
     issues,
     totals: {
-      purchaseTotal, revenue, cogs, grossProfit: revenue - cogs, receivable, receivableTax,
+      purchaseTotal, payable, paidTotal: personalPaid + companyPaid, personalPaid, companyPaid,
+      revenue, cogs, grossProfit: revenue - cogs, receivable, receivableTax,
       personalIn, personalTax, companyIn, taxRunTotal, withdrawTax, withdrawNet,
-      taxPaid, pendingTax,
+      taxPaid, pendingTax, taxGap,
       companyBalance: taxedBal + untaxedBal, taxedBal, untaxedBal, maxWithdrawNet,
-      // 已到手 = 个人账户到账 + 已从公司提出的
-      cashInHand: personalIn + withdrawNet,
+      // 个人账户 = 回到个人的钱 + 从公司提出的 − 从个人付给上游的
+      personalBalance: personalBal(),
       // 税后利润（估）= 毛利 − 已扣税 − 公司未税余额待扣的税 − 应收未回部分将来要扣的税
       netProfitEst: revenue - cogs - taxPaid - pendingTax - receivableTax,
     },
   };
 }
 
+const PROBE = '￿';
+
 // 模拟一次提现，不改状态
 export function previewWithdrawal(state, netYuan, date) {
-  const probe = { ...state, withdrawals: [...state.withdrawals, { id: '￿', date, net: netYuan }] };
-  return compute(probe).withdrawals.get('￿');
+  const probe = { ...state, withdrawals: [...state.withdrawals, { id: PROBE, date, net: netYuan }] };
+  return compute(probe).withdrawals.get(PROBE);
 }
 
 // 模拟一次月度扣税
 export function previewTaxRun(state, cutoff, date) {
-  const probe = { ...state, taxRuns: [...state.taxRuns, { id: '￿', date, cutoff }] };
-  return compute(probe).taxRuns.get('￿');
+  const probe = { ...state, taxRuns: [...state.taxRuns, { id: PROBE, date, cutoff }] };
+  return compute(probe).taxRuns.get(PROBE);
+}
+
+// 模拟一笔从公司账户付上游
+export function previewPayment(state, payment) {
+  const probe = { ...state, payments: [...(state.payments || []), { ...payment, id: PROBE }] };
+  return compute(probe).payments.get(PROBE);
 }
 
 export function fmt(cents) {

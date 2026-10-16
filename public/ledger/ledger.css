@@ -226,3 +226,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ask-body p { margin: 0 0 16px; font-size: 15px; }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+
+.hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.hero-top > div { min-width: 0; }
+.hero .btn.hero-btn { flex: none; background: var(--hero-fg); color: var(--hero-bg); border-color: transparent; font-weight: 600; margin-top: 2px; }
+.amt.in { color: var(--good); }

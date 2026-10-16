@@ -1,5 +1,6 @@
 import {
   ACCOUNT, emptyState, compute, autoAllocate, autoAllocateNet, openSalesFor, saleRates,
+  openPurchasesFor, autoAllocatePayment, paymentAllocated, previewPayment,
   saleTaxBreakdown, avgCosts, normSettings, pct,
   previewWithdrawal, previewTaxRun, overdueUntaxed, receiptGross,
   saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, monthEnd, prevMonth,
@@ -12,7 +13,7 @@ const today = () => {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
-const y = (cents) => '¥' + fmt(cents);
+const y = (cents) => (cents < 0 ? '−¥' : '¥') + fmt(Math.abs(cents));
 const yy = (yuan) => y(toCents(yuan));
 
 // ---------- 存储 ----------
@@ -31,7 +32,8 @@ let demoMode = !hasData(mine);
 let state = demoMode ? demoState() : mine;
 let R = compute(state);
 let tab = 'home';
-let tradeView = 'sales';
+// 各页里的分段切换：进销（销售/进货/库存）、收付款（回款/付款）、账户（公司/个人）
+const seg = { trade: 'sales', cash: 'in', acct: 'company' };
 
 function recompute() { R = compute(state); render(); }
 
@@ -118,6 +120,7 @@ const ICON = {
   out: '<path d="M12 14V3M7.5 7.5 12 3l4.5 4.5"/><path d="M4 15v4.5h16V15"/>',
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/>',
   withdraw: '<rect x="3" y="3.5" width="18" height="10" rx="2"/><path d="M12 8v12.5M8 16.5l4 4 4-4"/>',
+  pay: '<rect x="2.5" y="6" width="13" height="12" rx="2"/><circle cx="9" cy="12" r="2.4"/><path d="M15.5 12h6M18.5 9l3 3-3 3"/>',
   tax: '<path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z"/><path d="M9 7.5h6M9 11h6M9 14.5h3"/>',
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
@@ -158,16 +161,21 @@ function salePill(s) {
   if (s.settled > 0) return `<span class="pill part">还欠 ${y(s.outstanding)}</span>`;
   return '<span class="pill open">未回款</span>';
 }
+function purchasePill(p) {
+  if (p.outstanding <= 0) return '<span class="pill done">已付清</span>';
+  if (p.paid > 0) return `<span class="pill part">还欠 ${y(p.outstanding)}</span>`;
+  return '<span class="pill open">未付款</span>';
+}
 const acctPill = (a) => (a === ACCOUNT.PERSONAL ? '<span class="pill personal">个人</span>' : '<span class="pill company">公司</span>');
 
 // ---------- 渲染 ----------
 function render() {
   for (const t of ['home', 'trade', 'receipt', 'company', 'settings']) $(`#page-${t}`).hidden = t !== tab;
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  ({ home: renderHome, trade: renderTrade, receipt: renderReceipts, company: renderCompany, settings: renderSettings })[tab]();
+  ({ home: renderHome, trade: renderTrade, receipt: renderCash, company: renderAccounts, settings: renderSettings })[tab]();
 }
 
-document.querySelector('.tabbar').innerHTML = [['home', '总览'], ['trade', '进销'], ['receipt', '回款'], ['company', '公司账户'], ['settings', '设置']]
+document.querySelector('.tabbar').innerHTML = [['home', '总览'], ['trade', '进销'], ['receipt', '收付款'], ['company', '账户'], ['settings', '设置']]
   .map(([k, l]) => `<button data-tab="${k}">${icon(k)}<span>${l}</span></button>`).join('');
 document.querySelector('.tabbar').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-tab]');
@@ -186,19 +194,22 @@ function reminders() {
   return demoBanner() + out.join('');
 }
 
+const segCtl = (group, opts) => `<div class="seg">${opts.map(([k, l]) =>
+  `<button data-group="${group}" data-seg="${k}" class="${seg[group] === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+
 function renderHome() {
   const T = R.totals;
-  const month = today().slice(0, 7);
-  const mSales = R.sales.filter((s) => s.date.startsWith(month));
-  const mRevenue = mSales.reduce((s, x) => s + x.total, 0);
   const owing = R.customers.filter((c) => c.outstanding > 0);
+  const oweUp = R.suppliers.filter((c) => c.outstanding > 0);
 
   $('#page-home').innerHTML = `
     <header class="hdr"><div><h1>进销账</h1><p class="sub">上游进货 → 卖给下游 → 回款 → 扣税提现</p></div><span data-sync>${syncPill()}</span></header>
     ${reminders()}
     <div class="card hero">
-      <div class="k">公司账户里现在最多能提到手</div>
-      <div class="v num">${y(T.maxWithdrawNet)}</div>
+      <div class="hero-top">
+        <div><div class="k">公司账户里现在最多能提到手</div><div class="v num">${y(T.maxWithdrawNet)}</div></div>
+        <button class="btn sm hero-btn" data-act="withdraw">${icon('withdraw')}提现</button>
+      </div>
       <div class="split num">
         <span>公司余额 ${y(T.companyBalance)}</span>
         <span>其中未扣税 ${y(T.untaxedBal)}</span>
@@ -209,37 +220,45 @@ function renderHome() {
       <button class="btn" data-act="purchase">${icon('in')}记进货</button>
       <button class="btn" data-act="sale">${icon('out')}记销售</button>
       <button class="btn" data-act="receipt">${icon('cash')}记回款</button>
-      <button class="btn" data-act="withdraw">${icon('withdraw')}提现</button>
+      <button class="btn" data-act="payment">${icon('pay')}付上游</button>
     </div>
     <div class="grid">
-      <div class="stat tap" data-goto="receipt"><div class="k">下游还欠</div><div class="v num">${y(T.receivable)}</div><div class="d">${owing.length} 家没回清</div></div>
-      <div class="stat"><div class="k">已到手</div><div class="v num">${y(T.cashInHand)}</div><div class="d">个人账户 ${y(T.personalIn)} + 已提 ${y(T.withdrawNet)}</div></div>
-      <div class="stat"><div class="k">累计销售额</div><div class="v num">${y(T.revenue)}</div><div class="d">本月 ${y(mRevenue)}</div></div>
-      <div class="stat"><div class="k">毛利（销售 − 进价）</div><div class="v num">${y(T.grossProfit)}</div><div class="d">进货共 ${y(T.purchaseTotal)}</div></div>
+      <div class="stat tap" data-goto="receipt" data-goseg="cash:in"><div class="k">下游还欠我</div><div class="v num">${y(T.receivable)}</div><div class="d">${owing.length} 家没回清</div></div>
+      <div class="stat tap" data-goto="receipt" data-goseg="cash:out"><div class="k">我还欠上游</div><div class="v num">${y(T.payable)}</div><div class="d">已付 ${y(T.paidTotal)} / 进货 ${y(T.purchaseTotal)}</div></div>
+      <div class="stat tap" data-goto="company" data-goseg="acct:personal"><div class="k">个人账户</div><div class="v num">${y(T.personalBalance)}</div><div class="d">进 ${y(T.personalIn + T.withdrawNet)} · 付上游 ${y(T.personalPaid)}</div></div>
       <div class="stat"><div class="k">已扣税</div><div class="v num">${y(T.taxPaid)}</div><div class="d">个人 ${y(T.personalTax)} · 月扣 ${y(T.taxRunTotal)} · 提现 ${y(T.withdrawTax)}</div></div>
-      <div class="stat"><div class="k">税后利润（估）</div><div class="v num">${y(T.netProfitEst)}</div><div class="d">把待扣、应收将扣的税也算上</div></div>
+      <div class="stat"><div class="k">毛利</div><div class="v num">${y(T.grossProfit)}</div><div class="d">销售 ${y(T.revenue)} − 进价 ${y(T.cogs)}</div></div>
+      <div class="stat"><div class="k">税后利润（估）</div><div class="v num">${y(T.netProfitEst)}</div><div class="d">毛利减掉已扣、待扣的税</div></div>
     </div>
     <div class="card">
-      <h3>谁还欠钱 <span class="muted">按金额排</span></h3>
-      ${owing.length ? `<ul class="list">${owing.slice(0, 6).map((c) => `
+      <h3>谁还欠我钱</h3>
+      ${owing.length ? `<ul class="list">${owing.slice(0, 5).map((c) => `
         <li class="item" data-act="receipt" data-customer="${esc(c.name)}">
           <div class="l"><div class="t">${esc(c.name)}</div><div class="s">最早一笔 ${esc(c.oldest)} 起没回 · 共卖 ${y(c.total)}</div></div>
-          <div class="r"><div class="amt num">${y(c.outstanding)}</div><div class="s">点这里记回款</div></div>
+          <div class="r"><div class="amt num">${y(c.outstanding)}</div><div class="s">记回款</div></div>
         </li>`).join('')}</ul>` : '<div class="empty">没有欠款</div>'}
+    </div>
+    <div class="card">
+      <h3>我还欠谁钱</h3>
+      ${oweUp.length ? `<ul class="list">${oweUp.slice(0, 5).map((c) => `
+        <li class="item" data-act="payment" data-supplier="${esc(c.name)}">
+          <div class="l"><div class="t">${esc(c.name)}</div><div class="s">最早一笔 ${esc(c.oldest)} 起没付 · 共进 ${y(c.total)}</div></div>
+          <div class="r"><div class="amt num">${y(c.outstanding)}</div><div class="s">记付款</div></div>
+        </li>`).join('')}</ul>` : '<div class="empty">上游货款都付清了</div>'}
     </div>
     ${state.sales.length || state.purchases.length ? '' : `
     <div class="card explain">
-      <p><b>从哪开始：</b>先记一笔进货（从上游进了什么、多少钱），再记卖给下游的销售，下游打钱来时记回款。</p>
+      <p><b>从哪开始：</b>先记一笔进货（从上游进了什么、多少钱），再记卖给下游的销售。下游打钱来时记回款，你打钱给上游时记付款。</p>
     </div>`}
   `;
 }
 
 function renderTrade() {
-  const seg = `<div class="seg">
-    ${[['sales', '销售'], ['purchases', '进货'], ['stock', '库存 / 毛利']].map(([k, l]) => `<button data-seg="${k}" class="${tradeView === k ? 'on' : ''}">${l}</button>`).join('')}
+  const segHtml = `<div class="seg">
+    ${[['sales', '销售'], ['purchases', '进货'], ['stock', '库存 / 毛利']].map(([k, l]) => `<button data-group="trade" data-seg="${k}" class="${seg.trade === k ? 'on' : ''}">${l}</button>`).join('')}
   </div>`;
   let body = '';
-  if (tradeView === 'sales') {
+  if (seg.trade === 'sales') {
     const items = [...R.sales].sort(byDateDesc).map((s) => ({
       date: s.date, html: `
       <li class="item" data-edit="sale" data-id="${s.id}">
@@ -247,12 +266,12 @@ function renderTrade() {
         <div class="r"><div class="amt num">${y(s.total)}</div>${salePill(s)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有销售记录</li>'}</ul></div>`;
-  } else if (tradeView === 'purchases') {
-    const items = [...state.purchases].sort(byDateDesc).map((p) => ({
+  } else if (seg.trade === 'purchases') {
+    const items = [...R.purchases].sort(byDateDesc).map((p) => ({
       date: p.date, html: `
       <li class="item" data-edit="purchase" data-id="${p.id}">
         <div class="l"><div class="t">${esc(p.supplier)}</div><div class="s">${esc(p.product)} ${p.qty} × ${yy(p.price)}${p.note ? ' · ' + esc(p.note) : ''}</div></div>
-        <div class="r"><div class="amt num">${yy(purchaseAmount(p))}</div></div>
+        <div class="r"><div class="amt num">${y(p.total)}</div>${purchasePill(p)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有进货记录</li>'}</ul></div>`;
   } else {
@@ -269,54 +288,91 @@ function renderTrade() {
   $('#page-trade').innerHTML = `
     <header class="hdr"><div><h1>进销</h1><p class="sub">从上游进、卖给下游，每笔销售就是一笔应收</p></div>
       <div class="btn-row"><button class="btn sm" data-act="purchase">+ 进货</button><button class="btn sm primary" data-act="sale">+ 销售</button></div></header>
-    ${demoBanner()}${seg}${body}`;
+    ${demoBanner()}${segHtml}${body}`;
 }
 
-function renderReceipts() {
-  const owing = R.customers.filter((c) => c.outstanding > 0);
-  const items = [...state.receipts].sort(byDateDesc).map((r0) => {
-    const r = R.receipts.get(r0.id);
-    const n = (r0.allocations || []).length;
-    const sub = r0.account === ACCOUNT.PERSONAL
-      ? `核销 ${y(r.grossC)} · 扣税 ${y(r.taxC)}`
-      : `核销 ${y(r.grossC)}${r.unallocated ? ` · <span style="color:var(--warn)">${y(r.unallocated)} 没对上销售</span>` : ''}`;
-    return { date: r0.date, html: `
-      <li class="item" data-edit="receipt" data-id="${r0.id}">
-        <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${sub} · ${n > 1 ? `合并 ${n} 笔销售` : n === 1 ? '1 笔销售' : '未核销'}${r0.note ? ' · ' + esc(r0.note) : ''}</div></div>
-        <div class="r"><div class="amt num">${y(r.amountC)}</div><div class="s">到账</div></div>
-      </li>` };
-  });
+function renderCash() {
+  const isIn = seg.cash === 'in';
+  let body;
+  if (isIn) {
+    const owing = R.customers.filter((c) => c.outstanding > 0);
+    const items = [...state.receipts].sort(byDateDesc).map((r0) => {
+      const r = R.receipts.get(r0.id);
+      const n = (r0.allocations || []).length;
+      const sub = r0.account === ACCOUNT.PERSONAL
+        ? `核销 ${y(r.grossC)} · 扣税 ${y(r.taxC)}`
+        : `核销 ${y(r.grossC)}${r.unallocated ? ` · <span style="color:var(--warn)">${y(r.unallocated)} 没对上销售</span>` : ''}`;
+      return { date: r0.date, html: `
+        <li class="item" data-edit="receipt" data-id="${r0.id}">
+          <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${sub} · ${n > 1 ? `合并 ${n} 笔销售` : n === 1 ? '1 笔销售' : '未核销'}${r0.note ? ' · ' + esc(r0.note) : ''}</div></div>
+          <div class="r"><div class="amt num in">+${fmt(r.amountC)}</div><div class="s">到账</div></div>
+        </li>` };
+    });
+    body = `
+      <div class="card">
+        <h3>下游还欠我 <span class="muted">共 ${y(R.totals.receivable)}</span></h3>
+        ${owing.length ? `<ul class="list">${owing.map((c) => `
+          <li class="item" data-act="receipt" data-customer="${esc(c.name)}">
+            <div class="l"><div class="t">${esc(c.name)}</div><div class="s">已回 ${y(c.settled)} / 共 ${y(c.total)} · 最早 ${esc(c.oldest)}</div></div>
+            <div class="r"><div class="amt num">${y(c.outstanding)}</div></div>
+          </li>`).join('')}</ul>` : '<div class="empty">都回清了</div>'}
+      </div>
+      <div class="card"><h3>回款记录</h3><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有回款记录</li>'}</ul></div>`;
+  } else {
+    const oweUp = R.suppliers.filter((c) => c.outstanding > 0);
+    const items = [...(state.payments || [])].sort(byDateDesc).map((p0) => {
+      const p = R.payments.get(p0.id);
+      const n = (p0.allocations || []).length;
+      const extra = p.amountC > p.allocatedC ? ` · <span style="color:var(--warn)">${y(p.amountC - p.allocatedC)} 没对上进货</span>` : '';
+      return { date: p0.date, html: `
+        <li class="item" data-edit="payment" data-id="${p0.id}">
+          <div class="l"><div class="t">${esc(p0.supplier)} ${acctPill(p0.account)}</div><div class="s">${n > 1 ? `合并付 ${n} 笔进货` : n === 1 ? '付 1 笔进货' : '未核销'}${extra}${p0.note ? ' · ' + esc(p0.note) : ''}</div></div>
+          <div class="r"><div class="amt num">−${fmt(p.amountC)}</div><div class="s">打出</div></div>
+        </li>` };
+    });
+    body = `
+      <div class="card">
+        <h3>我还欠上游 <span class="muted">共 ${y(R.totals.payable)}</span></h3>
+        ${oweUp.length ? `<ul class="list">${oweUp.map((c) => `
+          <li class="item" data-act="payment" data-supplier="${esc(c.name)}">
+            <div class="l"><div class="t">${esc(c.name)}</div><div class="s">已付 ${y(c.paid)} / 共 ${y(c.total)} · 最早 ${esc(c.oldest)}</div></div>
+            <div class="r"><div class="amt num">${y(c.outstanding)}</div></div>
+          </li>`).join('')}</ul>` : '<div class="empty">都付清了</div>'}
+      </div>
+      <div class="card"><h3>付款记录</h3><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有付款记录</li>'}</ul></div>`;
+  }
   $('#page-receipt').innerHTML = `
-    <header class="hdr"><div><h1>回款</h1><p class="sub">一笔回款可以同时核销多笔销售</p></div>
-      <button class="btn sm primary" data-act="receipt">+ 回款</button></header>
+    <header class="hdr"><div><h1>收付款</h1><p class="sub">${isIn ? '下游打给我的钱，一笔可以核销多笔销售' : '我打给上游的钱，一笔可以付多笔进货'}</p></div>
+      <button class="btn sm primary" data-act="${isIn ? 'receipt' : 'payment'}">+ ${isIn ? '回款' : '付款'}</button></header>
     ${demoBanner()}
-    <div class="card">
-      <h3>应收 <span class="muted">共 ${y(R.totals.receivable)}</span></h3>
-      ${owing.length ? `<ul class="list">${owing.map((c) => `
-        <li class="item" data-act="receipt" data-customer="${esc(c.name)}">
-          <div class="l"><div class="t">${esc(c.name)}</div><div class="s">已回 ${y(c.settled)} / 共 ${y(c.total)} · 最早 ${esc(c.oldest)}</div></div>
-          <div class="r"><div class="amt num">${y(c.outstanding)}</div></div>
-        </li>`).join('')}</ul>` : '<div class="empty">都回清了</div>'}
-    </div>
-    <div class="card"><h3>回款记录</h3><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有回款记录</li>'}</ul></div>`;
+    ${segCtl('cash', [['in', `回款 · 收 ${fmt(R.totals.personalIn + R.totals.companyIn)}`], ['out', `付款 · 付 ${fmt(R.totals.paidTotal)}`]])}
+    ${body}`;
 }
 
-function renderCompany() {
+function flowList(flow) {
+  return flow.length ? `<ul class="list">${[...flow].reverse().map((f) => `
+    <li class="item" data-edit="${f.edit}" data-id="${f.ref}">
+      <div class="l"><div class="t">${f.kind}</div><div class="s">${esc(f.date)} · ${esc(f.text)}</div></div>
+      <div class="r"><div class="amt num ${f.delta >= 0 ? 'in' : ''}">${f.delta >= 0 ? '+' : '−'}${fmt(Math.abs(f.delta))}</div><div class="s num">余 ${fmt(f.balance)}</div></div>
+    </li>`).join('')}</ul>` : '<div class="empty">暂无流水</div>';
+}
+
+function renderAccounts() {
   const T = R.totals;
-  const tot = Math.max(1, T.companyBalance);
-  const lots = [...R.lots].reverse();
-  const flow = [...R.flow].reverse();
-  $('#page-company').innerHTML = `
-    <header class="hdr"><div><h1>公司账户</h1><p class="sub">回到公司的钱先不扣税，每月统一扣；提现时没扣过的要先扣</p></div></header>
-    ${reminders()}
+  const segHtml = segCtl('acct', [['company', `公司账户 ${fmt(T.companyBalance)}`], ['personal', `个人账户 ${fmt(T.personalBalance)}`]]);
+  let body;
+  if (seg.acct === 'company') {
+    const tot = Math.max(1, T.companyBalance);
+    const lots = [...R.lots].reverse();
+    body = `
     <div class="card">
-      <div class="muted small">账户余额</div>
+      <div class="muted small">公司账户余额</div>
       <div class="num" style="font-size:28px;font-weight:700">${y(T.companyBalance)}</div>
       <div class="bar"><i style="width:${(T.taxedBal / tot) * 100}%;background:var(--accent)"></i><i style="width:${(T.untaxedBal / tot) * 100}%;background:var(--warn)"></i></div>
       <div class="legend num"><span><b style="background:var(--accent)"></b>已扣税 ${y(T.taxedBal)}（可全额提）</span><span><b style="background:var(--warn)"></b>未扣税 ${y(T.untaxedBal)}（待扣 ${y(T.pendingTax)}）</span></div>
       <div class="calc" style="margin:12px 0 10px">
         <div class="ln"><span>已扣税部分，全提</span><span class="num">${y(T.taxedBal)}</span></div>
-        <div class="ln"><span>未扣税部分，扣完税再提</span><span class="num">${y(T.untaxedBal - T.pendingTax)}</span></div>
+        <div class="ln"><span>未扣税部分，扣完税再提</span><span class="num">${y(T.maxWithdrawNet - T.taxedBal)}</span></div>
         <div class="ln total"><span>最多能提到手</span><span class="num">${y(T.maxWithdrawNet)}</span></div>
       </div>
       <div class="two"><button class="btn" data-act="taxrun">${icon('tax')}月度扣税</button><button class="btn primary" data-act="withdraw">${icon('withdraw')}提现</button></div>
@@ -326,18 +382,29 @@ function renderCompany() {
       ${lots.length ? `<ul class="list">${lots.map((l) => `
         <li class="item" data-edit="receipt" data-id="${l.receiptId}">
           <div class="l"><div class="t">${esc(l.customer)} ${l.taxed ? '<span class="pill taxed">已扣税</span>' : '<span class="pill untaxed">未扣税</span>'}</div>
-            <div class="s">${esc(l.date)} 到账 ${y(l.original)} · 税负 ${pct(l.rate)}</div></div>
+            <div class="s">${esc(l.date)} 到账 ${y(l.original)} · ${l.taxed ? `交过税 ${y(l.taxOriginal)}` : `还要交税 ${y(l.taxDue)}`}</div></div>
           <div class="r"><div class="amt num">${y(l.remaining)}</div><div class="s">${l.remaining ? '还在账上' : '已用完'}</div></div>
         </li>`).join('')}</ul>` : '<div class="empty">还没有回到公司的钱</div>'}
     </div>
+    <div class="card"><h3>公司账户流水</h3>${flowList(R.flow)}</div>`;
+  } else {
+    body = `
     <div class="card">
-      <h3>流水</h3>
-      ${flow.length ? `<ul class="list">${flow.map((f) => `
-        <li class="item" data-edit="${f.kind === '回款' ? 'receipt' : f.kind === '扣税' ? 'taxrun' : 'withdraw'}" data-id="${f.ref}">
-          <div class="l"><div class="t">${f.kind}</div><div class="s">${esc(f.date)} · ${esc(f.text)}</div></div>
-          <div class="r"><div class="amt num" style="color:${f.delta >= 0 ? 'var(--good)' : 'var(--text)'}">${f.delta >= 0 ? '+' : '−'}${fmt(Math.abs(f.delta))}</div><div class="s num">余 ${fmt(f.balance)}</div></div>
-        </li>`).join('')}</ul>` : '<div class="empty">暂无流水</div>'}
-    </div>`;
+      <div class="muted small">个人账户（这本账里经手的钱）</div>
+      <div class="num" style="font-size:28px;font-weight:700">${y(T.personalBalance)}</div>
+      <div class="calc" style="margin:12px 0 0">
+        <div class="ln"><span>下游直接回到个人（已扣税）</span><span class="num">+${fmt(T.personalIn)}</span></div>
+        <div class="ln"><span>从公司提出来</span><span class="num">+${fmt(T.withdrawNet)}</span></div>
+        <div class="ln"><span>从个人付给上游</span><span class="num">−${fmt(T.personalPaid)}</span></div>
+        <div class="ln total"><span>结余</span><span class="num">${y(T.personalBalance)}</span></div>
+      </div>
+      ${T.personalBalance < 0 ? '<p class="small muted" style="margin:8px 0 0">是负数说明付上游时先从自己口袋垫了钱，回款到了就补回来。</p>' : ''}
+    </div>
+    <div class="card"><h3>个人账户流水</h3>${flowList(R.personalFlow)}</div>`;
+  }
+  $('#page-company').innerHTML = `
+    <header class="hdr"><div><h1>账户</h1><p class="sub">${seg.acct === 'company' ? '回到公司的钱先不扣税，每月统一扣；提现时没扣过的要先扣' : '回到个人的钱已经扣过税，提现进来的也是到手的钱'}</p></div></header>
+    ${reminders()}${segHtml}${body}`;
 }
 
 function renderSettings() {
@@ -374,6 +441,7 @@ function renderSettings() {
       <p><b>扣多少税跟着差价走：</b>每笔销售记一个进价。进价 1、卖 1.5、200 件，全部回款要扣 300×1% + 100×13% = 16。合并回款时，核销到哪笔销售就按哪笔的差价算。</p>
       <p><b>回个人账户：</b>到账就是扣完税的钱。上面那笔回到个人，到账 284，系统反推核销了 300 应收、扣税 16。</p>
       <p><b>回公司账户：</b>全额进账，标「未扣税」。每月做一次「月度扣税」，把上月及以前的未税余额扣税，标「已扣税」。</p>
+      <p><b>付上游 = 核销应付。</b>每笔进货就是欠上游的钱；打钱给上游时记一笔付款，可以一次付好几笔进货，从个人账户或公司账户打出都行。从公司账户付货款，税照扣，不会因为钱花出去就少交。</p>
       <p><b>从公司提现：</b>先提已扣税的钱，一分不少；不够再动未扣税的钱，这部分边提边扣税。提走的部分月底就不会再扣一次。</p>
       <p><b>删改任何一笔都安全：</b>余额、扣税、提现都是按时间顺序重新算出来的。</p>
     </div>`;
@@ -448,16 +516,22 @@ function exportCsv() {
 
 // ---------- 点击分发 ----------
 document.getElementById('app').addEventListener('click', (e) => {
-  const seg = e.target.closest('[data-seg]');
-  if (seg) { tradeView = seg.dataset.seg; return render(); }
+  const segBtn = e.target.closest('[data-seg]');
+  if (segBtn) { seg[segBtn.dataset.group] = segBtn.dataset.seg; return render(); }
   const go = e.target.closest('[data-goto]');
-  if (go) { tab = go.dataset.goto; return render(); }
+  if (go) {
+    tab = go.dataset.goto;
+    if (go.dataset.goseg) { const [g, v] = go.dataset.goseg.split(':'); seg[g] = v; }
+    window.scrollTo(0, 0);
+    return render();
+  }
   const act = e.target.closest('[data-act]');
   if (act) {
     const a = act.dataset.act;
     if (a === 'purchase') return purchaseForm();
     if (a === 'sale') return saleForm();
     if (a === 'receipt') return receiptForm(null, act.dataset.customer);
+    if (a === 'payment') return paymentForm(null, act.dataset.supplier);
     if (a === 'taxrun') return taxRunForm();
     if (a === 'withdraw') return withdrawForm();
     if (a === 'exit-demo') return exitDemo();
@@ -468,6 +542,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (edit === 'sale') return saleForm(state.sales.find((x) => x.id === id));
     if (edit === 'purchase') return purchaseForm(state.purchases.find((x) => x.id === id));
     if (edit === 'receipt') return receiptForm(state.receipts.find((x) => x.id === id));
+    if (edit === 'payment') return paymentForm((state.payments || []).find((x) => x.id === id));
     if (edit === 'taxrun') return taxRunForm(state.taxRuns.find((x) => x.id === id));
     if (edit === 'withdraw') return withdrawForm(state.withdrawals.find((x) => x.id === id));
   }
@@ -512,15 +587,24 @@ function purchaseForm(rec) {
   openSheet(rec ? '改进货' : '记进货', tradeFields('purchase', rec), (root) => {
     const calc = () => {
       const qty = num(root, '#f-qty') || 0, price = num(root, '#f-price') || 0;
-      $('#f-calc', root).innerHTML = `<div class="ln total"><span>进货金额</span><span class="num">${yy(qty * price)}</span></div>`;
+      const pp = rec && R.purchasesById.get(rec.id);
+      $('#f-calc', root).innerHTML = `<div class="ln total"><span>进货金额（欠上游）</span><span class="num">${yy(qty * price)}</span></div>`
+        + (pp?.paid ? `<div class="ln warn"><span>这笔已付</span><span class="num">${y(pp.paid)}</span></div>` : '');
     };
     root.addEventListener('input', calc); calc();
     $('#f-save', root).onclick = () => {
       const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier: $('#f-party', root).value.trim(), product: $('#f-product', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), note: $('#f-note', root).value.trim() };
       if (!r.date || !r.supplier || !r.product || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、上游、品种、数量、单价都要填');
+      const pp = rec && R.purchasesById.get(rec.id);
+      if (pp && pp.paid > toCents(purchaseAmount(r))) return toast(`这笔已付 ${y(pp.paid)}，金额不能改得比它小`);
+      if (pp && pp.paid && r.supplier !== rec.supplier) return toast('这笔已付过款，不能换上游；先删付款');
       upsert(state.purchases, r); save(); closeSheet(); toast('已记进货');
     };
-    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔进货？', '删除', true)) { remove(state.purchases, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => {
+      const used = (state.payments || []).filter((x) => (x.allocations || []).some((a) => a.purchaseId === rec.id));
+      if (used.length) return toast(`有 ${used.length} 笔付款付的是这笔进货，先删或改那些付款`);
+      if (await ask('删除这笔进货？', '删除', true)) { remove(state.purchases, rec.id); save(); closeSheet(); }
+    };
   });
 }
 
@@ -689,6 +773,109 @@ function receiptForm(rec, presetCustomer) {
   });
 }
 
+// ---------- 付上游 ----------
+function paymentForm(rec, presetSupplier) {
+  let account = rec?.account || ACCOUNT.PERSONAL;
+  let supplier = rec?.supplier || presetSupplier || '';
+  let alloc = new Map((rec?.allocations || []).map((a) => [a.purchaseId, a.amount]));
+  if (!state.payments) state.payments = [];
+  const others = { ...state, payments: state.payments.filter((x) => x.id !== rec?.id) };
+
+  openSheet(rec ? '改付款' : '付上游货款', `
+    <div class="two">
+      <div class="f"><label>打款日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
+      <div class="f"><label>打给哪家</label><input class="inp" id="f-sup" list="dl-sup" value="${esc(supplier)}" placeholder="上游公司"></div>
+    </div>
+    <div class="f"><label>从哪个账户打出</label>
+      <div class="acct">
+        <button type="button" data-v="personal"><b>个人账户</b><small>从自己卡里付</small></button>
+        <button type="button" data-v="company"><b>公司账户</b><small>从公司账上付<br>税照扣，不会少</small></button>
+      </div></div>
+    <div class="f"><label>打出金额（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-amt" value="${rec?.amount ?? ''}"></div>
+    <div class="lbl" style="display:flex;justify-content:space-between;align-items:center">付的是哪几笔进货 <button class="btn sm" type="button" id="f-auto">按金额自动分</button></div>
+    <div class="alloc" id="f-alloc"></div>
+    <div class="calc" id="f-calc"></div>
+    <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
+    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}
+    ${datalist('dl-sup', names(state.purchases, 'supplier'))}`, (root) => {
+
+    const amount = () => num(root, '#f-amt') || 0;
+    const paintAcct = () => root.querySelectorAll('.acct button').forEach((b) => b.classList.toggle('on', b.dataset.v === account));
+
+    const paintAlloc = () => {
+      const open = supplier ? openPurchasesFor(state, supplier, rec?.id) : [];
+      const ids = new Set(open.map((o) => o.purchase.id));
+      const extra = [...alloc.keys()].filter((id) => !ids.has(id)).map((id) => state.purchases.find((p) => p.id === id)).filter(Boolean)
+        .map((p) => ({ purchase: p, outstanding: toCents(purchaseAmount(p)) }));
+      const rows = [...open, ...extra];
+      $('#f-alloc', root).innerHTML = rows.length ? rows.map((o) => `
+        <div class="alloc-row">
+          <div><div>${esc(o.purchase.date)} ${esc(o.purchase.product)} ${o.purchase.qty}×${o.purchase.price}</div><div class="s">还欠 ${y(o.outstanding)}</div></div>
+          <input class="inp sm num" type="number" inputmode="decimal" step="0.01" data-pur="${o.purchase.id}" data-max="${o.outstanding}" value="${alloc.get(o.purchase.id) ?? ''}" placeholder="0">
+        </div>`).join('') : `<div class="empty">${supplier ? '欠这家的货款都付清了' : '先填打给哪家'}</div>`;
+      paintCalc();
+    };
+
+    const collect = () => {
+      let sum = 0, over = false;
+      const allocations = [];
+      root.querySelectorAll('[data-pur]').forEach((i) => {
+        const c = toCents(i.value);
+        if (c > Number(i.dataset.max)) over = true;
+        sum += c;
+        if (c > 0) allocations.push({ purchaseId: i.dataset.pur, amount: toYuan(c) });
+      });
+      return { sum, over, allocations };
+    };
+
+    const paintCalc = () => {
+      const { sum, over } = collect();
+      const amt = toCents(amount());
+      let html = `<div class="ln"><span>付掉的货款合计</span><span class="num">${y(sum)}</span></div>`;
+      if (sum !== amt && amt) html += `<div class="ln warn"><span>${sum < amt ? `有 ${y(amt - sum)} 没对上进货（预付？）` : `核销比打出的钱多 ${y(sum - amt)}`}</span></div>`;
+      if (account === ACCOUNT.COMPANY && amt) {
+        const p = previewPayment(others, { date: $('#f-date', root).value || today(), supplier, account, amount: amount(), allocations: [] });
+        if (p.shortfall > 0) html += `<div class="ln bad"><span>公司账户当天只有 ${y(p.taken)}，付不出这么多</span></div>`;
+        else if (p.reserveUsed > 0) html += `<div class="ln warn"><span>会用掉 ${y(p.reserveUsed)} 留着交税的钱，月底扣税时公司账上可能不够</span></div>`;
+        else html += '<div class="ln"><span>公司账户付得起，不影响月底交税</span></div>';
+      }
+      if (over) html += '<div class="ln bad"><span>有一笔付款超过了它的欠款</span></div>';
+      $('#f-calc', root).innerHTML = html;
+    };
+
+    const auto = () => {
+      alloc = new Map(autoAllocatePayment(state, supplier, amount(), rec?.id).map((a) => [a.purchaseId, a.amount]));
+      paintAlloc();
+    };
+
+    paintAcct(); paintAlloc();
+    root.querySelectorAll('.acct button').forEach((b) => (b.onclick = () => { account = b.dataset.v; paintAcct(); paintCalc(); }));
+    $('#f-sup', root).addEventListener('change', (e) => { supplier = e.target.value.trim(); alloc = new Map(); if (amount()) auto(); else paintAlloc(); });
+    $('#f-amt', root).addEventListener('input', auto);
+    $('#f-date', root).addEventListener('input', paintCalc);
+    $('#f-auto', root).onclick = auto;
+    $('#f-alloc', root).addEventListener('input', (e) => {
+      const i = e.target.closest('[data-pur]');
+      if (i) { alloc.set(i.dataset.pur, i.value === '' ? undefined : parseFloat(i.value)); paintCalc(); }
+    });
+
+    $('#f-save', root).onclick = () => {
+      supplier = $('#f-sup', root).value.trim();
+      const { over, allocations } = collect();
+      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier, account, amount: amount(), allocations, note: $('#f-note', root).value.trim() };
+      if (!r.date || !r.supplier || !(r.amount > 0)) return toast('日期、打给哪家、金额要填');
+      if (over) return toast('有一笔付款超过了它的欠款');
+      if (r.account === ACCOUNT.COMPANY) {
+        const p = previewPayment(others, r);
+        if (p.shortfall > 0) return toast(`公司账户当天只有 ${y(p.taken)}，付不出这么多`);
+      }
+      upsert(state.payments, r); save(); closeSheet();
+      toast(r.allocations.length > 1 ? `已记付款，合并付了 ${r.allocations.length} 笔进货` : '已记付款');
+    };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔付款？', '删除', true)) { remove(state.payments, rec.id); save(); closeSheet(); } };
+  });
+}
+
 // ---------- 月度扣税 ----------
 function taxRunForm(rec) {
   const last = prevMonth(today());
@@ -793,6 +980,11 @@ function demoState() {
     // 康宁回到个人账户，已扣税
     { id: 'r2', date: d(lm, 25), customer: '康宁大药房', account: 'personal', amount: 85.2, allocations: [{ saleId: 's3', amount: 90 }], note: '' },
     { id: 'r3', date: d(t.slice(0, 7), 3), customer: '康宁大药房', account: 'company', amount: 1000, allocations: [{ saleId: 's5', amount: 1000 }], note: '部分回款' },
+  );
+  s.payments.push(
+    // 甲的货款先从自己卡里垫上；乙的货款等仁和回款到公司后，从公司账上付了一部分
+    { id: 'pay1', date: d(lm, 2), supplier: '华东医药供应链', account: 'personal', amount: 200, allocations: [{ purchaseId: 'p1', amount: 200 }], note: '' },
+    { id: 'pay2', date: d(lm, 22), supplier: '华东医药供应链', account: 'company', amount: 3000, allocations: [{ purchaseId: 'p2', amount: 3000 }], note: '' },
   );
   return s;
 }
