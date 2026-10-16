@@ -279,29 +279,36 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .hdr .btn, .hdr .btn-row { flex: none; white-space: nowrap; }
 .hdr > div:first-child { min-width: 0; }
 
-/* 记销售：挑货、勾批次 */
+/* 记销售：同一个药一行，点开看进价 */
 .goods { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-bottom: 8px; overflow: hidden; }
 .goods.picked { border-color: var(--accent); }
-.goods-hd { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; padding: 11px 12px; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
-.goods-hd:disabled { cursor: default; }
-.goods-hd.static { display: flex; justify-content: space-between; cursor: default; }
-.goods-hd:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.goods-hd { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 0; }
+.goods-hd.static { justify-content: space-between; padding: 11px 12px; }
+.goods-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 0 4px 12px; border: 0; background: none; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
+.goods-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
 .goods-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .goods-name b { font-size: 15px; }
 .goods-name small { color: var(--muted); font-size: 12px; }
-.goods-meta { grid-column: 1; display: flex; gap: 10px; font-size: 12px; color: var(--muted); }
-.goods-pick { grid-column: 2; grid-row: 1 / span 2; }
-.goods-body { display: none; padding: 0 12px 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.goods-meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.goods-more { color: var(--accent); }
+.goods-qty { width: 92px; flex: none; }
+.goods.picked .goods-qty { border-color: var(--accent); }
+.goods-body { display: none; padding: 10px 12px 12px; border-top: 1px solid var(--border); }
 .goods.open .goods-body { display: block; }
-.lots { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-.lot { display: grid; grid-template-columns: 1fr 96px; gap: 8px; align-items: center; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.lots { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.lot { display: grid; grid-template-columns: 1fr 88px; gap: 8px; align-items: center; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
 .lot-tick { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; min-width: 0; }
 .lot-tick input { accent-color: var(--accent); width: 18px; height: 18px; margin: 1px 0 0; flex: none; }
 .lot-tick b { font-weight: 600; }
+.price-src { margin-bottom: 8px; }
+.price-src-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; }
+.price-src-row .inp { width: 110px; flex: none; }
+.price-src .picker-add { display: flex; gap: 8px; margin: 6px 0 0; font-size: 13px; color: var(--accent); cursor: pointer; }
+.price-src .hint { margin: 4px 0 0; }
 .goods-sum .ln { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 2px 0; }
 .goods-sum .ln.warn { color: var(--warn); }
 .goods-sum .ln.bad { color: var(--danger); }
 .goods-body .f { margin-bottom: 8px; }
-.goods-body [data-pnote] .picker-add { display: flex; gap: 8px; margin: -2px 0 8px; font-size: 13px; color: var(--accent); cursor: pointer; }
-.goods-body [data-pnote] .hint { margin: -2px 0 4px; }
 .lbl .tip { font-weight: 400; color: var(--muted); }
+.alloc-hd .btn { flex: none; white-space: nowrap; }
+.alloc-hd > span { min-width: 0; }

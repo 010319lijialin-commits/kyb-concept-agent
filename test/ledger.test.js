@@ -350,3 +350,10 @@ test('卖得比库存多：多出的按平均进价算并提醒；某批出得�
   r = compute(t);
   assert.ok(r.issues.some((x) => x.includes('进了 100 件，记的卖出有 120 件')));
 });
+
+test('同一个药不分厂家列批次：按进货日期排', () => {
+  const s = twoMakers();
+  s.purchases.push({ id: 'pa2', date: '2026-08-20', supplier: '厂家A', product: '甲', qty: 10, price: 0.9 });
+  assert.deepEqual(openBatchesFor(s, null, '甲').map((b) => b.purchase.id), ['pa2', 'pa', 'pb']);
+  assert.deepEqual(openBatchesFor(s, '厂家B', '甲').map((b) => b.purchase.id), ['pb']);
+});

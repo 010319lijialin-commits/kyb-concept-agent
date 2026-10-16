@@ -269,11 +269,12 @@ export function batchCosting(state) {
   return { sales: out, batches, warn };
 }
 
-// 某个厂家某个药还有货的批次（去掉 excludeSaleId 这笔自己用掉的），按进货日期排；keepIds 里的没货了也留着
+// 某个药还有货的批次（去掉 excludeSaleId 这笔自己用掉的），按进货日期排；keepIds 里的没货了也留着。
+// supplier 传 null：不限厂家（记销售时同一个药合成一行，各厂家的批次一起列）
 export function openBatchesFor(state, supplier, product, excludeSaleId, keepIds = []) {
   const { batches } = batchCosting({ ...state, sales: state.sales.filter((x) => x.id !== excludeSaleId) });
   return [...batches.values()]
-    .filter((b) => b.purchase.supplier === supplier && b.purchase.product === product && (b.remaining > EPS || keepIds.includes(b.purchase.id)))
+    .filter((b) => (supplier == null || b.purchase.supplier === supplier) && b.purchase.product === product && (b.remaining > EPS || keepIds.includes(b.purchase.id)))
     .sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id))
     .map((b) => ({ purchase: b.purchase, remaining: Math.max(0, b.remaining), unit: b.unit }));
 }

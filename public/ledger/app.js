@@ -850,64 +850,65 @@ function purchaseForm(rec) {
 }
 
 // ---------- 记销售 ----------
-// 先选卖给哪家，再从有库存的货里挑：点开一样货，勾选整批卖，或者填这批卖几件；
-// 也可以填「共卖几件」，按先进先出分到各批。卖的件数 = 各批加起来。
-// 一次可以挑好几样货卖给同一家，保存时每样货记一笔销售。
-// 改旧销售时只显示那一样货。
+// 先选卖给哪家，再挑货。同一个药合成一行（不管从哪个厂家、哪一批进的），行上直接填「卖几件」，
+// 默认先进先出分到各批；点开这一行看进价情况（每批哪天进的、哪个厂家、进价、剩几件），可以勾选整批或改件数。
+// 售价按「厂家 + 药」从价目表带出；一个药来自几个厂家，就每个厂家一个售价，保存时每个厂家各记一笔销售。
+// 改旧销售时只显示那一笔的药，而且只列它那个厂家的批次。
 const fmtQ = (q) => +(+q).toFixed(3);
 
 function saleForm(rec) {
   const old = rec && R.salesById.get(rec.id);
-  const gkey = (sup, prod) => `${sup}\u0001${prod}`;
+  const recSupplier = rec ? (rec.supplier || old?.supplier || '') : null;
 
-  // 可以卖的货：有库存的「厂家 + 药」；改旧销售时只有它那一样
-  const goodsList = () => {
-    if (rec) {
-      const sup = rec.supplier || old?.supplier || '';
-      return [{ supplier: sup, product: rec.product }];
-    }
-    return R.products.filter((p) => p.supplier && p.stock > 1e-9)
-      .map((p) => ({ supplier: p.supplier, product: p.product }))
-      .sort((a, b) => (a.supplier < b.supplier ? -1 : a.supplier > b.supplier ? 1 : a.product < b.product ? -1 : 1));
-  };
+  // 可以卖的货：有库存的药（按药名合并）；改旧销售时只有它那一个
+  const productNames = rec
+    ? [rec.product]
+    : [...new Set(R.products.filter((p) => p.stock > 1e-9).map((p) => p.product))].sort();
 
-  // 每样货的状态：售价、各批卖几件、是否展开
-  const sel = new Map();
-  const goods = goodsList().map((g) => {
-    const k = gkey(g.supplier, g.product);
-    const batches = openBatchesFor(state, g.supplier, g.product, rec?.id, (old?.lots || []).map((l) => l.purchaseId));
-    const lp = listPrice(state, g.supplier, g.product);
-    const st = { ...g, key: k, batches, listPrice: lp, price: rec ? rec.price : lp, open: Boolean(rec), lots: new Map() };
-    if (rec) for (const l of old?.lots || []) st.lots.set(l.purchaseId, fmtQ(l.qty));
-    sel.set(k, st);
-    return st;
-  });
+  const groups = new Map();
+  for (const product of productNames) {
+    const batches = openBatchesFor(state, rec ? recSupplier : null, product, rec?.id, (old?.lots || []).map((l) => l.purchaseId));
+    const sources = [...new Set(batches.map((b) => b.purchase.supplier))];
+    if (rec && !sources.includes(recSupplier)) sources.push(recSupplier);
+    const prices = new Map(sources.map((sup) => {
+      const lp = listPrice(state, sup, product);
+      return [sup, { list: lp, price: rec && sup === recSupplier ? rec.price : lp, save: null }];
+    }));
+    const g = { product, batches, sources, prices, lots: new Map(), open: Boolean(rec) };
+    if (rec) for (const l of old?.lots || []) g.lots.set(l.purchaseId, fmtQ(l.qty));
+    if (rec && !batches.length) g.manualQty = Number(rec.qty) || 0; // 当时没库存记的：没有批次可选，直接改件数
+    groups.set(product, g);
+  }
   const manual = []; // 还没记进货的货：手填厂家、药、件数、售价
+
+  const priceText = (g) => {
+    const ps = [...new Set([...g.prices.values()].map((p) => p.list).filter((v) => v != null))];
+    if (!ps.length) return '没定售价';
+    return ps.length === 1 ? `售价 ¥${ps[0]}` : `售价 ¥${Math.min(...ps)}–${Math.max(...ps)}`;
+  };
 
   const batchRow = (g, b) => {
     const q = g.lots.get(b.purchase.id) || '';
-    return `<div class="lot" data-g="${esc(g.key)}" data-b="${b.purchase.id}">
+    return `<div class="lot" data-b="${b.purchase.id}">
       <label class="lot-tick"><input type="checkbox" data-tick ${q ? 'checked' : ''}>
-        <span><b>${esc(b.purchase.date)} 进的</b> · 进价 ¥${b.purchase.price} · 剩 ${fmtQ(b.remaining)} 件${b.purchase.note ? ` · ${esc(b.purchase.note)}` : ''}</span></label>
+        <span><b>${esc(b.purchase.date)} 进</b>${g.sources.length > 1 ? ` · ${esc(b.purchase.supplier)}` : ''} · 进价 ¥${b.purchase.price} · 剩 ${fmtQ(b.remaining)} 件${b.purchase.note ? ` · ${esc(b.purchase.note)}` : ''}</span></label>
       <input class="inp sm num" type="number" inputmode="decimal" data-q value="${q}" placeholder="0" aria-label="${esc(b.purchase.date)} 那批卖几件">
     </div>`;
   };
 
   const goodsCard = (g) => `
-    <div class="goods ${g.open ? 'open' : ''}" data-goods="${esc(g.key)}" data-search="${esc(`${g.product} ${g.supplier}`)}">
-      <button type="button" class="goods-hd" data-toggle ${rec ? 'disabled' : ''}>
-        <span class="goods-name"><b>${esc(g.product)}</b><small>${esc(g.supplier)}</small></span>
-        <span class="goods-meta"><span>库存 ${fmtQ(g.batches.reduce((t, b) => t + b.remaining, 0))} 件</span><span>${g.listPrice != null ? `售价 ¥${g.listPrice}` : '没定售价'}</span></span>
-        <span class="goods-pick" data-pickst></span>
-      </button>
+    <div class="goods ${g.open ? 'open' : ''}" data-goods="${esc(g.product)}" data-search="${esc(`${g.product} ${g.sources.join(' ')}`)}">
+      <div class="goods-hd">
+        <button type="button" class="goods-main" data-toggle aria-expanded="${g.open}">
+          <span class="goods-name"><b>${esc(g.product)}</b><small>${esc(g.sources.join(' · '))}</small></span>
+          <span class="goods-meta"><span>库存 ${fmtQ(g.batches.reduce((t, b) => t + b.remaining, 0))} 件</span><span>${priceText(g)}</span><span class="goods-more">${g.open ? '收起' : '看进价'}</span></span>
+        </button>
+        <input class="inp sm num goods-qty" type="number" inputmode="decimal" data-total placeholder="卖几件" aria-label="${esc(g.product)} 卖几件">
+      </div>
       <div class="goods-body">
-        <div class="two">
-          <div class="f"><label>共卖几件 <span class="tip">按先进先出分</span></label><input class="inp" type="number" inputmode="decimal" data-total value=""></div>
-          <div class="f"><label>售价（元/件）</label><input class="inp" type="number" inputmode="decimal" step="0.01" data-price value="${g.price ?? ''}"></div>
-        </div>
-        <div data-pnote></div>
-        <div class="lbl">从哪几批出 <span class="tip">勾选整批卖，或者填这批卖几件</span></div>
-        <div class="lots">${g.batches.length ? g.batches.map((b) => batchRow(g, b)).join('') : '<div class="empty">这样货现在没有库存</div>'}</div>
+        <div class="lbl alloc-hd"><span>进价情况 <span class="tip">默认先进先出，可以勾选整批或改件数</span></span><button type="button" class="btn sm" data-fifo>按先进先出</button></div>
+        <div class="lots">${g.batches.length ? g.batches.map((b) => batchRow(g, b)).join('') : '<div class="empty">现在没有库存</div>'}</div>
+        <div data-prices></div>
         <div class="goods-sum" data-gsum></div>
       </div>
     </div>`;
@@ -931,8 +932,8 @@ function saleForm(rec) {
       <div class="f"><label>日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
       <div class="f"><label for="f-party">卖给哪家</label>${pickerField('f-party', 'customers', rec?.customer || '', { placeholder: '选下游公司' })}</div>
     </div>
-    <div class="lbl alloc-hd">${rec ? '卖的货' : '卖什么货'} ${!rec && goods.length > 5 ? '<input class="inp sm" id="f-search" placeholder="搜药名或厂家" style="max-width:150px">' : ''}</div>
-    <div id="f-goods">${goods.length ? goods.map(goodsCard).join('') : '<div class="empty">现在没有库存。先去记进货，或者用下面的「卖还没记进货的货」。</div>'}</div>
+    <div class="lbl alloc-hd"><span>${rec ? '卖的货' : '卖什么货'} <span class="tip">填件数默认先进先出，点开看进价可以调</span></span>${!rec && groups.size > 5 ? '<input class="inp sm" id="f-search" placeholder="搜药名或厂家" style="max-width:140px">' : ''}</div>
+    <div id="f-goods">${groups.size ? [...groups.values()].map(goodsCard).join('') : '<div class="empty">现在没有库存。先去记进货，或者用下面的「卖还没记进货的货」。</div>'}</div>
     <div id="f-manual"></div>
     ${rec ? '' : '<button type="button" class="btn sm" id="f-add-manual" style="margin:0 0 12px">+ 卖还没记进货的货</button>'}
     <div class="calc" id="f-calc"></div>
@@ -941,44 +942,30 @@ function saleForm(rec) {
     <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}`, (root) => {
 
     wirePickers(root);
-    const card = (k) => root.querySelector(`[data-goods="${CSS.escape(k)}"]`);
-    const lotQty = (g) => [...g.lots.values()].reduce((t, q) => t + (Number(q) || 0), 0);
-    const cogsOf = (g) => g.batches.reduce((t, b) => t + Math.round((Number(g.lots.get(b.purchase.id)) || 0) * b.unit), 0);
-
-    // 一样货的小结：卖几件、多少钱、成本、扣税；售价和价目表的关系
-    const paintGoods = (g) => {
-      const el = card(g.key);
-      if (!el) return;
-      const qty = lotQty(g);
-      const price = Number(g.price);
-      const over = g.batches.some((b) => (Number(g.lots.get(b.purchase.id)) || 0) > b.remaining + 1e-9);
-      el.querySelector('[data-pickst]').innerHTML = qty > 0 ? `<span class="pill done">卖 ${fmtQ(qty)} 件</span>` : '';
-      el.classList.toggle('picked', qty > 0);
-      if (document.activeElement !== el.querySelector('[data-total]')) el.querySelector('[data-total]').value = qty ? fmtQ(qty) : '';
-      const sum = el.querySelector('[data-gsum]');
-      if (!qty) sum.innerHTML = '';
-      else if (!(price >= 0) || el.querySelector('[data-price]').value === '') sum.innerHTML = '<div class="ln warn"><span>填一下售价</span></div>';
-      else {
-        const amt = Math.round(qty * toCents(price));
-        const cogs = cogsOf(g);
-        const t = taxFromTotals(amt, cogs, R.settings);
-        sum.innerHTML = `<div class="ln"><span>${fmtQ(qty)} 件 × ¥${price}</span><span class="num">${y(amt)}</span></div>
-          <div class="ln"><span>进货成本（按勾的批次）</span><span class="num">${y(cogs)}</span></div>
-          <div class="ln"><span>差价 ${y(t.margin)}，回清要扣税</span><span class="num">${y(t.tax)}</span></div>`;
+    const card = (product) => root.querySelector(`[data-goods="${CSS.escape(product)}"]`);
+    const batchOf = (g, id) => g.batches.find((b) => b.purchase.id === id);
+    // 按厂家分：每个厂家卖几件、成本多少
+    const bySource = (g) => {
+      const m = new Map();
+      if (!g.batches.length) {
+        if (g.manualQty > 0) m.set(g.sources[0], { qty: g.manualQty, cogs: 0, lots: [] });
+        return m;
       }
-      if (over) sum.innerHTML += '<div class="ln bad"><span>有一批卖的件数超过了它的库存</span></div>';
-      // 售价和价目表
-      const note = el.querySelector('[data-pnote]');
-      const typed = el.querySelector('[data-price]').value !== '';
-      if (g.listPrice == null) note.innerHTML = typed && price > 0
-        ? `<label class="picker-add"><input type="checkbox" data-psave ${g.priceSave !== false ? 'checked' : ''}><span>把售价 ¥${price} 记进价目表，下次自动带出</span></label>` : '';
-      else if (typed && price !== g.listPrice) note.innerHTML = `<p class="hint warn-text">价目表是 ¥${g.listPrice}，这笔按 ¥${price} 记</p>
-        <label class="picker-add"><input type="checkbox" data-psave ${g.priceSave ? 'checked' : ''}><span>同时把价目表改成 ¥${price}</span></label>`;
-      else note.innerHTML = '';
+      for (const b of g.batches) {
+        const q = Number(g.lots.get(b.purchase.id)) || 0;
+        if (!q) continue;
+        const x = m.get(b.purchase.supplier) || { qty: 0, cogs: 0, lots: [] };
+        x.qty += q;
+        x.cogs += Math.round(q * b.unit);
+        x.lots.push({ purchaseId: b.purchase.id, qty: q });
+        m.set(b.purchase.supplier, x);
+      }
+      return m;
     };
+    const totalQty = (g) => (g.batches.length ? [...g.lots.values()].reduce((t, q) => t + (Number(q) || 0), 0) : g.manualQty || 0);
 
-    // 「共卖几件」：按先进先出分到各批（先用卖出那天之前进的货）
     const fifoFill = (g, total) => {
+      if (!g.batches.length) { g.manualQty = Number(total) || 0; g.short = 0; return; }
       let need = Number(total) || 0;
       g.lots.clear();
       const date = $('#f-date', root).value || today();
@@ -990,75 +977,146 @@ function saleForm(rec) {
           if (q > 0) { g.lots.set(b.purchase.id, fmtQ(q)); need -= q; }
         }
       }
-      card(g.key).querySelectorAll('.lot').forEach((row) => {
+      g.short = need > 1e-9 ? fmtQ(need) : 0; // 填的件数比库存多
+      card(g.product).querySelectorAll('.lot').forEach((row) => {
         const q = g.lots.get(row.dataset.b) || '';
         row.querySelector('[data-q]').value = q;
         row.querySelector('[data-tick]').checked = Boolean(q);
       });
     };
 
+    // 售价：卖到的每个厂家一行（一个都没选时列全部厂家）
+    const paintPrices = (g) => {
+      const el = card(g.product);
+      const box = el.querySelector('[data-prices]');
+      const used = [...bySource(g).keys()];
+      const show = used.length ? used : g.sources;
+      const sig = show.join('\u0001');
+      if (box.dataset.sig === sig) return paintPriceNotes(g);
+      box.dataset.sig = sig;
+      box.innerHTML = show.map((sup) => {
+        const p = g.prices.get(sup);
+        return `<div class="price-src" data-sup="${esc(sup)}">
+          <div class="price-src-row"><span>${show.length > 1 || g.sources.length > 1 ? `${esc(sup)} 的售价` : '售价'}（元/件）</span>
+            <input class="inp sm num" type="number" inputmode="decimal" step="0.01" data-price value="${p.price ?? ''}"></div>
+          <div data-pnote></div></div>`;
+      }).join('');
+      paintPriceNotes(g);
+    };
+    const paintPriceNotes = (g) => {
+      card(g.product).querySelectorAll('.price-src').forEach((row) => {
+        const p = g.prices.get(row.dataset.sup);
+        const note = row.querySelector('[data-pnote]');
+        const v = p.price;
+        if (p.list == null) note.innerHTML = v != null && v > 0
+          ? `<label class="picker-add"><input type="checkbox" data-psave ${p.save !== false ? 'checked' : ''}><span>把 ¥${v} 记进价目表，下次自动带出</span></label>` : '<p class="hint">价目表里还没有，填一次就能记进去</p>';
+        else if (v != null && v !== p.list) note.innerHTML = `<p class="hint warn-text">价目表是 ¥${p.list}，这笔按 ¥${v} 记</p>
+          <label class="picker-add"><input type="checkbox" data-psave ${p.save ? 'checked' : ''}><span>同时把价目表改成 ¥${v}</span></label>`;
+        else note.innerHTML = '';
+      });
+    };
+
+    const paintGoods = (g) => {
+      const el = card(g.product);
+      if (!el) return;
+      const qty = totalQty(g);
+      el.classList.toggle('picked', qty > 0);
+      const t = el.querySelector('[data-total]');
+      if (document.activeElement !== t) t.value = qty ? fmtQ(qty) : '';
+      paintPrices(g);
+      const over = g.batches.some((b) => (Number(g.lots.get(b.purchase.id)) || 0) > b.remaining + 1e-9);
+      const sum = el.querySelector('[data-gsum]');
+      let html = '';
+      if (qty) {
+        let amt = 0, cogs = 0, tax = 0, missing = false;
+        for (const [sup, x] of bySource(g)) {
+          const price = g.prices.get(sup).price;
+          if (price == null) { missing = true; continue; }
+          const a = Math.round(x.qty * toCents(price));
+          amt += a; cogs += x.cogs; tax += taxFromTotals(a, x.cogs, R.settings).tax;
+        }
+        html = missing ? '<div class="ln warn"><span>填一下售价</span></div>'
+          : `<div class="ln"><span>卖 ${fmtQ(qty)} 件</span><span class="num">${y(amt)}</span></div>
+             <div class="ln"><span>进货成本（按选的批次）</span><span class="num">${y(cogs)}</span></div>
+             <div class="ln"><span>差价 ${y(Math.max(0, amt - cogs))}，回清要扣税</span><span class="num">${y(tax)}</span></div>`;
+      }
+      if (g.short) html += `<div class="ln warn"><span>库存只有 ${fmtQ(qty)} 件，差 ${g.short} 件</span></div>`;
+      if (over) html += '<div class="ln bad"><span>有一批卖的件数超过了它的库存</span></div>';
+      sum.innerHTML = html;
+    };
+
     const paintTotal = () => {
-      const lines = [];
-      for (const g of sel.values()) {
-        const qty = lotQty(g);
-        if (qty > 0) {
-          const amt = Math.round(qty * toCents(Number(g.price) || 0));
-          lines.push({ qty, amt, tax: taxFromTotals(amt, cogsOf(g), R.settings).tax });
+      let amt = 0, qty = 0, tax = 0, kinds = 0, partial = false;
+      for (const g of groups.values()) {
+        const q = totalQty(g);
+        if (!q) continue;
+        kinds++;
+        qty += q;
+        for (const [sup, x] of bySource(g)) {
+          const price = g.prices.get(sup).price || 0;
+          const a = Math.round(x.qty * toCents(price));
+          amt += a;
+          tax += taxFromTotals(a, x.cogs, R.settings).tax;
         }
       }
       for (const m of manual) {
-        const card = root.querySelector(`[data-manual="${m.id}"]`);
-        const q = Number(card.querySelector('[data-mqty]').value) || 0;
-        const p = Number(card.querySelector('[data-mprice]').value) || 0;
-        if (q > 0) lines.push({ qty: q, amt: Math.round(q * toCents(p)), tax: null });
+        const el = root.querySelector(`[data-manual="${m.id}"]`);
+        const q = Number(el.querySelector('[data-mqty]').value) || 0;
+        if (!q) continue;
+        kinds++; qty += q; partial = true;
+        amt += Math.round(q * toCents(Number(el.querySelector('[data-mprice]').value) || 0));
       }
-      const amt = lines.reduce((t, l) => t + l.amt, 0);
-      const qty = lines.reduce((t, l) => t + l.qty, 0);
-      const tax = lines.reduce((t, l) => t + (l.tax || 0), 0);
-      $('#f-calc', root).innerHTML = lines.length
-        ? `<div class="ln total"><span>${lines.length > 1 ? `${lines.length} 样货，` : ''}共 ${fmtQ(qty)} 件（应收）</span><span class="num">${y(amt)}</span></div>
-           <div class="ln"><span>回清后要扣税${lines.some((l) => l.tax == null) ? '（不含还没记进货的）' : ''}</span><span class="num">${y(tax)}</span></div>`
+      $('#f-calc', root).innerHTML = kinds
+        ? `<div class="ln total"><span>${kinds > 1 ? `${kinds} 样货，` : ''}共 ${fmtQ(qty)} 件（应收）</span><span class="num">${y(amt)}</span></div>
+           <div class="ln"><span>回清后要扣税${partial ? '（不含还没记进货的）' : ''}</span><span class="num">${y(tax)}</span></div>`
           + (old?.settled ? `<div class="ln warn"><span>这笔已回款</span><span class="num">${y(old.settled)}</span></div>` : '')
-        : `<div class="ln"><span>${rec ? '勾选或者填一下卖几件' : '点开一样货，勾选批次或者填件数'}</span></div>`;
+        : `<div class="ln"><span>在要卖的货后面填件数</span></div>`;
     };
 
     const goodsBox = $('#f-goods', root);
     goodsBox.addEventListener('click', (e) => {
-      const t = e.target.closest('[data-toggle]');
-      if (!t) return;
-      const el = t.closest('[data-goods]');
-      const g = sel.get(el.dataset.goods);
-      g.open = !g.open;
-      el.classList.toggle('open', g.open);
+      const el = e.target.closest('[data-goods]');
+      if (!el) return;
+      const g = groups.get(el.dataset.goods);
+      if (e.target.closest('[data-toggle]')) {
+        g.open = !g.open;
+        el.classList.toggle('open', g.open);
+        el.querySelector('[data-toggle]').setAttribute('aria-expanded', g.open);
+        el.querySelector('.goods-more').textContent = g.open ? '收起' : '看进价';
+      } else if (e.target.closest('[data-fifo]')) {
+        fifoFill(g, totalQty(g));
+        paintGoods(g); paintTotal();
+      }
     });
     goodsBox.addEventListener('input', (e) => {
       const el = e.target.closest('[data-goods]');
       if (!el) return;
-      const g = sel.get(el.dataset.goods);
+      const g = groups.get(el.dataset.goods);
       const row = e.target.closest('.lot');
       if (e.target.matches('[data-tick]')) {
         // 勾上 = 这批剩下的全卖；取消 = 这批不卖
-        const b = g.batches.find((x) => x.purchase.id === row.dataset.b);
+        const b = batchOf(g, row.dataset.b);
         const q = e.target.checked ? fmtQ(b.remaining) : '';
         row.querySelector('[data-q]').value = q;
         if (q) g.lots.set(b.purchase.id, q); else g.lots.delete(b.purchase.id);
+        g.short = 0;
       } else if (e.target.matches('[data-q]')) {
         const q = Number(e.target.value) || 0;
         row.querySelector('[data-tick]').checked = q > 0;
         if (q > 0) g.lots.set(row.dataset.b, q); else g.lots.delete(row.dataset.b);
+        g.short = 0;
       } else if (e.target.matches('[data-total]')) {
-        fifoFill(g, e.target.value);
+        fifoFill(g, e.target.value); // 默认先进先出
       } else if (e.target.matches('[data-price]')) {
-        g.price = e.target.value === '' ? null : Number(e.target.value);
+        const p = g.prices.get(e.target.closest('.price-src').dataset.sup);
+        p.price = e.target.value === '' ? null : Number(e.target.value);
       } else if (e.target.matches('[data-psave]')) {
-        g.priceSave = e.target.checked;
+        g.prices.get(e.target.closest('.price-src').dataset.sup).save = e.target.checked;
         return;
       }
       paintGoods(g);
       paintTotal();
     });
-    // 日期变了：「共卖几件」按新日期重新先进先出（只对填了总数、没手动挑批次的不做处理，保持简单）
-    $('#f-date', root).addEventListener('input', paintTotal);
 
     if ($('#f-search', root)) $('#f-search', root).addEventListener('input', (e) => {
       const q = e.target.value.trim();
@@ -1079,7 +1137,7 @@ function saleForm(rec) {
       el.querySelector(`#m-maker-${m.id}`).focus();
     };
 
-    for (const g of sel.values()) paintGoods(g);
+    for (const g of groups.values()) paintGoods(g);
     paintTotal();
 
     $('#f-save', root).onclick = () => {
@@ -1088,13 +1146,15 @@ function saleForm(rec) {
       const note = $('#f-note', root).value.trim();
       if (!date || !customer) return toast('日期和卖给哪家要填');
       const out = [];
-      for (const g of sel.values()) {
-        const qty = lotQty(g);
-        if (!(qty > 0)) continue;
-        if (!(Number(g.price) >= 0) || g.price === null || g.price === '') return toast(`${g.product}（${g.supplier}）的售价要填`);
-        if (g.batches.some((b) => (Number(g.lots.get(b.purchase.id)) || 0) > b.remaining + 1e-9)) return toast(`${g.product}（${g.supplier}）有一批卖的件数超过了库存`);
-        const lots = g.batches.filter((b) => Number(g.lots.get(b.purchase.id)) > 0).map((b) => ({ purchaseId: b.purchase.id, qty: Number(g.lots.get(b.purchase.id)) }));
-        out.push({ g, sale: { id: rec?.id || uid(), date, supplier: g.supplier, product: g.product, customer, qty: fmtQ(qty), price: Number(g.price), lots, note } });
+      for (const g of groups.values()) {
+        if (!totalQty(g)) continue;
+        if (g.batches.some((b) => (Number(g.lots.get(b.purchase.id)) || 0) > b.remaining + 1e-9)) return toast(`${g.product}有一批卖的件数超过了库存`);
+        for (const [sup, x] of bySource(g)) {
+          const p = g.prices.get(sup);
+          if (p.price == null || !(p.price >= 0)) return toast(`${g.product}（${sup}）的售价要填`);
+          const reuse = rec && sup === recSupplier && !out.some((o) => o.sale.id === rec.id);
+          out.push({ p, sup, product: g.product, sale: { id: reuse ? rec.id : uid(), date, supplier: sup, product: g.product, customer, qty: fmtQ(x.qty), price: p.price, lots: x.lots, note } });
+        }
       }
       for (const m of manual) {
         const el = root.querySelector(`[data-manual="${m.id}"]`);
@@ -1104,24 +1164,26 @@ function saleForm(rec) {
         const price = el.querySelector('[data-mprice]').value;
         if (!sup && !prod && !qty) continue;
         if (!sup || !prod || !(qty > 0) || price === '') return toast('还没记进货的那样货：厂家、品种、件数、售价都要填');
-        out.push({ g: null, sale: { id: uid(), date, supplier: sup, product: prod, customer, qty, price: Number(price), note } });
+        out.push({ p: null, sale: { id: uid(), date, supplier: sup, product: prod, customer, qty, price: Number(price), note } });
       }
-      if (!out.length) return toast(rec ? '勾选或者填一下卖几件' : '还没挑卖什么货');
-      if (old && old.settled > toCents(saleAmount(out[0].sale))) return toast(`这笔已回款 ${y(old.settled)}，金额不能改得比它小`);
+      if (!out.length) return toast(rec ? '勾选批次或者填一下卖几件' : '在要卖的货后面填件数');
+      if (rec && !out.some((o) => o.sale.id === rec.id)) return toast('这笔至少要从原来的厂家出一件货；不卖了就删掉这笔');
+      const mine = out.find((o) => o.sale.id === rec?.id);
+      if (old && old.settled > toCents(saleAmount(mine.sale))) return toast(`这笔已回款 ${y(old.settled)}，金额不能改得比它小`);
       if (old && old.settled && customer !== rec.customer) return toast('这笔已有回款，不能换下游；先删回款');
 
       const added = commitPickers(root);
       let priced = 0;
-      for (const { g, sale } of out) {
-        if (g && Number(g.price) > 0 && (g.listPrice == null ? g.priceSave !== false : g.priceSave && g.price !== g.listPrice)) {
-          setListPrice(state, g.supplier, g.product, g.price);
+      for (const { p, sup, product, sale } of out) {
+        if (p && p.price > 0 && (p.list == null ? p.save !== false : p.save && p.price !== p.list)) {
+          setListPrice(state, sup, product, p.price);
+          p.list = p.price;
           priced++;
         }
         upsert(state.sales, sale);
       }
       save(); closeSheet();
-      const n = out.length;
-      toast(`已记销售${n > 1 ? `：${n} 样货` : ''}` + addedNote(added) + (priced ? '，售价已记进价目表' : ''));
+      toast(`已记销售${out.length > 1 ? `，分 ${out.length} 笔记（每个厂家每样货一笔）` : ''}` + addedNote(added) + (priced ? '，售价已记进价目表' : ''));
     };
     if (rec) $('#f-del', root).onclick = async () => {
       const used = state.receipts.filter((x) => (x.allocations || []).some((a) => a.saleId === rec.id));
