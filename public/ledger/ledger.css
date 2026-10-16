@@ -271,3 +271,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tag button:hover, .tag button:focus-visible { background: var(--danger-soft); color: var(--danger); outline: none; }
 .tag-add { display: flex; gap: 8px; }
 .tag-add .inp { flex: 1; min-width: 0; }
+
+.price-note { margin: -4px 0 12px; }
+.price-note .hint { margin: 0; }
+.price-note .picker-add { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 0; font-size: 13px; color: var(--accent); cursor: pointer; }
+.warn-text { color: var(--warn) !important; }
+.hdr .btn, .hdr .btn-row { flex: none; white-space: nowrap; }
+.hdr > div:first-child { min-width: 0; }

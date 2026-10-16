@@ -17,8 +17,9 @@ export function emptyState() {
   return {
     version: 4,
     settings: { ...DEFAULT_SETTINGS },
-    purchases: [],   // { id, date, supplier, product, qty, price, note }
-    sales: [],       // { id, date, customer, product, qty, price, note }  进价自动算，见 costLookup
+    purchases: [],   // { id, date, supplier(厂家), product, qty, price, note }
+    sales: [],       // { id, date, supplier(厂家), product, customer, qty, price, note }  进价自动算，见 costLookup
+    prices: [],      // 价目表 { supplier, product, price }：每个厂家的每个药一个售价
     receipts: [],    // { id, date, customer, account, amount(到账), allocations:[{saleId, amount(核销)}], note }
     payments: [],    // { id, date, supplier, account, amount(打出去的钱), allocations:[{purchaseId, amount}], note }
     withdrawals: [], // { id, date, net(从公司提到个人的钱), note }
@@ -34,7 +35,7 @@ export function seedLists(state) {
   const uniq = (arr) => [...new Set(arr.map((x) => String(x || '').trim()).filter(Boolean))];
   return {
     products: uniq([...state.purchases.map((p) => p.product), ...state.sales.map((x) => x.product)]),
-    suppliers: uniq([...state.purchases.map((p) => p.supplier), ...(state.payments || []).map((p) => p.supplier)]),
+    suppliers: uniq([...state.purchases.map((p) => p.supplier), ...state.sales.map((x) => x.supplier), ...(state.payments || []).map((p) => p.supplier)]),
     customers: uniq([...state.sales.map((x) => x.customer), ...state.receipts.map((r) => r.customer)]),
   };
 }
@@ -90,19 +91,39 @@ export function avgCosts(state) {
   return out;
 }
 
-// 销售不用填进价，自动算：这个品种在卖出那天及之前进的货，按数量加权的平均进价（元/件）。
-// - 之后再进的货（哪怕价格不同）不影响已经卖掉的，记好的账不会自己变
-// - 改了某笔进货的价格，用到它的销售会跟着重算
-// - 卖出之前没有进货记录，用这个品种全部进货的平均价；一笔进货都没有算 0（会提醒先记进货）
-// 返回 (product, date) => { cost, basis: 'before' | 'all' | 'none' }
-export function costLookup(state) {
+// ---------- 厂家 ----------
+// 销售记的是「哪个厂家的哪个药」。老销售没记厂家：这个药只从一家进过货，就认那家；从多家进过就不知道（''）。
+export function supplierResolver(state) {
   const by = new Map();
   for (const p of state.purchases) {
-    if (!by.has(p.product)) by.set(p.product, []);
-    by.get(p.product).push(p);
+    if (!by.has(p.product)) by.set(p.product, new Set());
+    by.get(p.product).add(p.supplier);
+  }
+  return (sale) => {
+    if (sale.supplier) return sale.supplier;
+    const set = by.get(sale.product);
+    return set && set.size === 1 ? [...set][0] : '';
+  };
+}
+
+const PS = '\u0001';
+export const productKey = (supplier, product) => `${supplier || ''}${PS}${product}`;
+
+// 销售不用填进价，自动算：这个厂家的这个药，在卖出那天及之前进的货，按数量加权的平均进价（元/件）。
+// - 之后再进的货（哪怕价格不同）不影响已经卖掉的，记好的账不会自己变
+// - 改了某笔进货的价格，用到它的销售会跟着重算
+// - 卖出之前没有进货记录，用全部进货的平均价；一笔进货都没有算 0（会提醒先记进货）
+// - 不知道厂家（老数据、从多家进过同一个药）：按这个药所有厂家的进货算
+// 返回 (product, date, supplier) => { cost, basis: 'before' | 'all' | 'none' }
+export function costLookup(state) {
+  const groups = new Map();
+  const push = (k, p) => { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); };
+  for (const p of state.purchases) {
+    push(productKey(p.supplier, p.product), p);
+    push(productKey('', p.product), p);
   }
   const idx = new Map();
-  for (const [k, list] of by) {
+  for (const [k, list] of groups) {
     list.sort((a, b) => cmp(a.date, b.date));
     let q = 0, c = 0;
     const dates = [], cq = [], cc = [];
@@ -113,8 +134,8 @@ export function costLookup(state) {
     }
     idx.set(k, { dates, cq, cc });
   }
-  return (product, date) => {
-    const x = idx.get(product);
+  return (product, date, supplier = '') => {
+    const x = idx.get(productKey(supplier, product));
     if (!x) return { cost: 0, basis: 'none' };
     let lo = 0, hi = x.dates.length - 1, i = -1; // 最后一笔日期 ≤ date 的进货
     while (lo <= hi) {
@@ -127,7 +148,24 @@ export function costLookup(state) {
   };
 }
 
-export const costBasis = (state, product, date) => costLookup(state)(product, date);
+// ---------- 价目表 ----------
+// 每个厂家的每个药，卖给谁都是同一个售价，跟进价无关。记销售时按「厂家 + 药」自动带出。
+// 改价目表只影响以后的销售：每笔销售自己存着当时的售价。
+export function listPrice(state, supplier, product) {
+  const x = (state.prices || []).find((p) => p.supplier === supplier && p.product === product);
+  return x ? x.price : null;
+}
+export function setListPrice(state, supplier, product, price) {
+  state.prices = state.prices || [];
+  const x = state.prices.find((p) => p.supplier === supplier && p.product === product);
+  if (x) x.price = Number(price);
+  else state.prices.push({ supplier, product, price: Number(price) });
+}
+export function removeListPrice(state, supplier, product) {
+  state.prices = (state.prices || []).filter((p) => !(p.supplier === supplier && p.product === product));
+}
+
+export const costBasis = (state, product, date, supplier = '') => costLookup(state)(product, date, supplier);
 
 // 每回 1 元这笔销售的款，要扣多少税
 export function saleTaxRate(price, cost, settings) {
@@ -150,13 +188,15 @@ export function saleTaxBreakdown(sale, cost, settings) {
 
 const taxOn = (cents, rate) => Math.round(cents * rate);
 
-// saleId → { cost, basis, rate }
+// saleId → { cost, basis, rate, supplier }
 export function saleRates(state) {
   const lookup = costLookup(state);
+  const supplierOf = supplierResolver(state);
   const m = new Map();
   for (const s of state.sales) {
-    const { cost, basis } = lookup(s.product, s.date);
-    m.set(s.id, { cost, basis, rate: saleTaxRate(s.price, cost, state.settings) });
+    const supplier = supplierOf(s);
+    const { cost, basis } = lookup(s.product, s.date, supplier);
+    m.set(s.id, { cost, basis, supplier, rate: saleTaxRate(s.price, cost, state.settings) });
   }
   return m;
 }
@@ -282,13 +322,13 @@ export function compute(state) {
   const sales = state.sales.map((s) => {
     const total = toCents(saleAmount(s));
     const done = settled.get(s.id) || 0;
-    const { cost, basis, rate } = rates.get(s.id);
+    const { cost, basis, rate, supplier } = rates.get(s.id);
     const tb = saleTaxBreakdown(s, cost, settings);
     if (done > total) issues.push(`销售「${s.customer} ${s.product}」核销金额超过了销售额`);
-    if (basis === 'none') issues.push(`还没记过「${s.product}」的进货，${s.date} 卖给 ${s.customer} 的这批差价税先按全额算；补记进货后会自动重算`);
+    if (basis === 'none') issues.push(`还没记过${supplier ? ` ${supplier} 的` : ''}「${s.product}」的进货，${s.date} 卖给 ${s.customer} 的这批差价税先按全额算；补记进货后会自动重算`);
     return {
       ...s, total, settled: done, outstanding: Math.max(0, total - done),
-      unitCost: cost, costBasis: basis, cogs: Math.round(toCents(cost) * Number(s.qty || 0)), rate, taxFull: tb.tax, taxBreakdown: tb,
+      supplier, unitCost: cost, costBasis: basis, cogs: Math.round(toCents(cost) * Number(s.qty || 0)), rate, taxFull: tb.tax, taxBreakdown: tb,
     };
   });
   const salesById = new Map(sales.map((s) => [s.id, s]));
@@ -321,18 +361,20 @@ export function compute(state) {
   };
 
   // ---- 库存 & 毛利 ----
+  // 按「厂家 + 药」分开：同一个药从不同厂家进，进价、库存都分开算
   const products = new Map();
-  const prod = (name) => {
-    if (!products.has(name)) products.set(name, { name, inQty: 0, inCost: 0, outQty: 0, outRevenue: 0, cogs: 0 });
-    return products.get(name);
+  const prod = (supplier, product) => {
+    const k = productKey(supplier, product);
+    if (!products.has(k)) products.set(k, { key: k, supplier, product, name: supplier ? `${product}（${supplier}）` : product, inQty: 0, inCost: 0, outQty: 0, outRevenue: 0, cogs: 0, price: listPrice(state, supplier, product) });
+    return products.get(k);
   };
   for (const p of state.purchases) {
-    const x = prod(p.product);
+    const x = prod(p.supplier, p.product);
     x.inQty += Number(p.qty) || 0;
     x.inCost += toCents(purchaseAmount(p));
   }
   for (const s of sales) {
-    const x = prod(s.product);
+    const x = prod(s.supplier, s.product);
     x.outQty += Number(s.qty) || 0;
     x.outRevenue += s.total;
     x.cogs += s.cogs;

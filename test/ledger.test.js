@@ -238,3 +238,50 @@ test('最近用过的日期', () => {
   const m = lastUsed(threeBatches(), 'customers');
   assert.equal(m.get('下游C'), '2026-09-04');
 });
+
+// ---------- 厂家 + 价目表 ----------
+import { listPrice, setListPrice, removeListPrice, supplierResolver } from '../public/ledger/core.js';
+
+function twoMakers() {
+  const s = emptyState();
+  s.purchases.push({ id: 'pa', date: '2026-09-01', supplier: '厂家A', product: '甲', qty: 100, price: 1 });
+  s.purchases.push({ id: 'pb', date: '2026-09-01', supplier: '厂家B', product: '甲', qty: 100, price: 1.2 });
+  return s;
+}
+
+test('同一个药不同厂家：进价、库存按厂家分开算', () => {
+  const s = twoMakers();
+  s.sales.push({ id: 'sa', date: '2026-09-02', supplier: '厂家A', product: '甲', customer: '下游C', qty: 50, price: 1.5 });
+  s.sales.push({ id: 'sb', date: '2026-09-02', supplier: '厂家B', product: '甲', customer: '下游C', qty: 50, price: 1.5 });
+  const r = compute(s);
+  assert.equal(r.salesById.get('sa').unitCost, 1);
+  assert.equal(r.salesById.get('sb').unitCost, 1.2);
+  // 厂家A：75×1% + 25×13% = 0.75 + 3.25；厂家B：0.75 + 15×13% = 0.75 + 1.95
+  assert.equal(y(r.salesById.get('sa').taxFull), 4);
+  assert.equal(y(r.salesById.get('sb').taxFull), 2.7);
+  const stock = Object.fromEntries(r.products.map((p) => [p.name, p.stock]));
+  assert.deepEqual(stock, { '甲（厂家A）': 50, '甲（厂家B）': 50 });
+});
+
+test('老销售没记厂家：这个药只从一家进过就认那家，多家就按全部厂家平均', () => {
+  const s = single();
+  assert.equal(supplierResolver(s)(s.sales[0]), '上游A');
+  assert.equal(compute(s).products[0].name, '甲（上游A）');
+  const t = twoMakers();
+  t.sales.push({ id: 'old', date: '2026-09-02', product: '甲', customer: '下游C', qty: 10, price: 1.5 });
+  assert.equal(Math.round(compute(t).salesById.get('old').unitCost * 100) / 100, 1.1);
+});
+
+test('价目表：每个厂家的每个药一个售价，可改可删', () => {
+  const s = twoMakers();
+  assert.equal(listPrice(s, '厂家A', '甲'), null);
+  setListPrice(s, '厂家A', '甲', 1.5);
+  setListPrice(s, '厂家B', '甲', 1.6);
+  assert.equal(listPrice(s, '厂家A', '甲'), 1.5);
+  assert.equal(listPrice(s, '厂家B', '甲'), 1.6);
+  setListPrice(s, '厂家A', '甲', 1.55);
+  assert.equal(listPrice(s, '厂家A', '甲'), 1.55);
+  assert.equal(s.prices.length, 2);
+  removeListPrice(s, '厂家B', '甲');
+  assert.equal(listPrice(s, '厂家B', '甲'), null);
+});

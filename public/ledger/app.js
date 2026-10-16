@@ -4,7 +4,7 @@ import {
   saleTaxBreakdown, costBasis, normSettings, pct,
   previewWithdrawal, companyBalanceAt, receiptGross,
   saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, prevMonth,
-  seedLists, addToList, lastUsed,
+  seedLists, addToList, lastUsed, listPrice, setListPrice, removeListPrice,
 } from './core.js';
 import { createStore } from './store.js';
 
@@ -279,14 +279,14 @@ function renderHome() {
 
 function renderTrade() {
   const segHtml = `<div class="seg">
-    ${[['sales', '销售'], ['purchases', '进货'], ['stock', '库存 / 毛利']].map(([k, l]) => `<button data-group="trade" data-seg="${k}" class="${seg.trade === k ? 'on' : ''}">${l}</button>`).join('')}
+    ${[['sales', '销售'], ['purchases', '进货'], ['prices', '价目表'], ['stock', '库存']].map(([k, l]) => `<button data-group="trade" data-seg="${k}" class="${seg.trade === k ? 'on' : ''}">${l}</button>`).join('')}
   </div>`;
   let body = '';
   if (seg.trade === 'sales') {
     const items = [...R.sales].sort(byDateDesc).map((s) => ({
       date: s.date, html: `
       <li class="item" data-edit="sale" data-id="${s.id}">
-        <div class="l"><div class="t">${esc(s.customer)}</div><div class="s">${esc(s.product)} ${s.qty} × ${yy(s.price)} · 回清要扣税 ${y(s.taxFull)}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
+        <div class="l"><div class="t">${esc(s.customer)}</div><div class="s">${esc(s.product)}${s.supplier ? `（${esc(s.supplier)}）` : ''} ${s.qty} × ${yy(s.price)} · 回清要扣税 ${y(s.taxFull)}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
         <div class="r"><div class="amt num">${y(s.total)}</div>${salePill(s)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有销售记录</li>'}</ul></div>`;
@@ -298,8 +298,10 @@ function renderTrade() {
         <div class="r"><div class="amt num">${y(p.total)}</div>${purchasePill(p)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有进货记录</li>'}</ul></div>`;
+  } else if (seg.trade === 'prices') {
+    body = renderPrices();
   } else {
-    body = `<div class="card"><h3>按品种 <span class="muted">进价按加权平均</span></h3>
+    body = `<div class="card"><h3>按厂家和品种 <span class="muted">进价按加权平均</span></h3>
       ${R.products.length ? `<div class="tbl-wrap"><table class="tbl num">
         <tr><th>品种</th><th class="r">进</th><th class="r">出</th><th class="r">库存</th><th class="r">均价</th><th class="r">毛利</th></tr>
         ${R.products.map((p) => `<tr>
@@ -310,9 +312,97 @@ function renderTrade() {
     </div>`;
   }
   $('#page-trade').innerHTML = `
-    <header class="hdr"><div><h1>进销</h1><p class="sub">从上游进、卖给下游，每笔销售就是一笔应收</p></div>
-      <div class="btn-row"><button class="btn sm" data-act="purchase">+ 进货</button><button class="btn sm primary" data-act="sale">+ 销售</button></div></header>
+    <header class="hdr"><div><h1>进销</h1><p class="sub">${seg.trade === 'prices' ? '每个厂家的每个药一个售价，记销售时自动带出' : '从上游进、卖给下游，每笔销售就是一笔应收'}</p></div>
+      ${seg.trade === 'prices'
+        ? '<button class="btn sm primary" data-act="price">+ 定个售价</button>'
+        : '<div class="btn-row"><button class="btn sm" data-act="purchase">+ 进货</button><button class="btn sm primary" data-act="sale">+ 销售</button></div>'}</header>
     ${demoBanner()}${segHtml}${body}`;
+}
+
+// 每件的差价和扣税：按元精确算，不先四舍五入到分（单价很小时取整会差出好几成）
+function perUnit(price, cost) {
+  const margin = Math.max(0, price - cost);
+  const tax = price * R.settings.revenueRate + margin * R.settings.marginRate;
+  return { margin, tax, net: margin - tax };
+}
+const yu = (yuan) => `¥${+yuan.toFixed(3)}`;
+
+// 价目表：价目表里的 + 进过货但还没定售价的，按厂家分组
+function priceRows() {
+  const rows = new Map();
+  const key = (sup, prod) => `${sup}\u0001${prod}`;
+  for (const p of state.prices || []) rows.set(key(p.supplier, p.product), { supplier: p.supplier, product: p.product, price: p.price });
+  for (const p of state.purchases) if (!rows.has(key(p.supplier, p.product))) rows.set(key(p.supplier, p.product), { supplier: p.supplier, product: p.product, price: null });
+  return [...rows.values()].map((r) => {
+    const st = R.products.find((x) => x.supplier === r.supplier && x.product === r.product);
+    const cost = st && st.inQty ? st.avgCost / 100 : null;
+    const per = r.price != null && cost != null ? perUnit(r.price, cost) : null;
+    return { ...r, cost, per, stock: st?.stock ?? 0 };
+  }).sort((a, b) => (a.supplier < b.supplier ? -1 : a.supplier > b.supplier ? 1 : a.product < b.product ? -1 : 1));
+}
+
+function renderPrices() {
+  const rows = priceRows();
+  if (!rows.length) return '<div class="card"><div class="empty">还没有。点「定个售价」，或者记销售时顺手记进来。</div></div>';
+  let cur = null;
+  const out = [];
+  for (const r of rows) {
+    if (r.supplier !== cur) { out.push(`<li class="day">${esc(r.supplier)}</li>`); cur = r.supplier; }
+    out.push(`<li class="item" data-edit="price" data-sup="${esc(r.supplier)}" data-prod="${esc(r.product)}">
+      <div class="l"><div class="t">${esc(r.product)}</div><div class="s">${r.cost != null ? `平均进价 ¥${+r.cost.toFixed(4)}` : '还没进过货'}${r.per ? ` · 每件差价 ${yu(r.per.margin)} · 每件扣税 ${yu(r.per.tax)}` : ''} · 库存 ${r.stock}</div></div>
+      <div class="r">${r.price != null ? `<div class="amt num">¥${r.price}</div><div class="s">售价</div>` : '<span class="pill part">还没定售价</span>'}</div>
+    </li>`);
+  }
+  return `<div class="card"><ul class="list">${out.join('')}</ul></div>`;
+}
+
+function priceForm(supplier = '', product = '') {
+  const cur = supplier && product ? listPrice(state, supplier, product) : null;
+  const editing = cur != null;
+  openSheet(editing ? '改售价' : '定个售价', `
+    <p class="small muted" style="margin-top:0">同一个厂家的同一个药，卖给谁都是这个价。改了只影响以后的销售，已经记的不变。</p>
+    <div class="f"><label for="f-maker">上游厂家</label>${pickerField('f-maker', 'suppliers', supplier, { placeholder: '选一个，或打个新名字' })}</div>
+    <div class="f"><label for="f-product">品种</label>${pickerField('f-product', 'products', product, { placeholder: '选一个，或打个新名字' })}</div>
+    <div class="f"><label>售价（元/件）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-price" value="${cur ?? ''}"></div>
+    <div class="calc" id="f-calc"></div>
+    <button class="btn primary block" id="f-save">保存</button>
+    ${editing ? '<button class="btn danger block" id="f-del" type="button" style="margin-top:8px">从价目表删掉</button>' : ''}`, (root) => {
+    const maker = () => $('#f-maker', root).value.trim();
+    const prod = () => $('#f-product', root).value.trim();
+    wirePickers(root, { maker });
+    const calc = () => {
+      const price = num(root, '#f-price');
+      const st = R.products.find((x) => x.supplier === maker() && x.product === prod());
+      let html = '';
+      if (st && st.inQty) {
+        const cost = st.avgCost / 100;
+        html += `<div class="ln"><span>平均进价</span><span class="num">¥${+cost.toFixed(4)}</span></div>`;
+        if (price > 0) {
+          const b = perUnit(price, cost);
+          html += `<div class="ln"><span>每件差价</span><span class="num">${yu(b.margin)}</span></div>
+            <div class="ln"><span>每件扣税</span><span class="num">${yu(b.tax)}</span></div>
+            <div class="ln total"><span>每件税后赚</span><span class="num">${yu(b.net)}</span></div>`;
+        }
+      } else if (maker() && prod()) html = `<div class="ln"><span>还没进过 ${esc(maker())} 的${esc(prod())}</span></div>`;
+      const other = maker() && prod() && !(maker() === supplier && prod() === product) ? listPrice(state, maker(), prod()) : null;
+      if (other != null) html += `<div class="ln warn"><span>价目表里已经有了：¥${other}，保存会改成新的价</span></div>`;
+      $('#f-calc', root).innerHTML = html;
+      $('#f-calc', root).hidden = !html;
+    };
+    root.addEventListener('input', calc); calc();
+    $('#f-save', root).onclick = () => {
+      const price = num(root, '#f-price');
+      if (!maker() || !prod() || !(price >= 0)) return toast('厂家、品种、售价都要填');
+      const added = commitPickers(root);
+      if (editing && (maker() !== supplier || prod() !== product)) removeListPrice(state, supplier, product);
+      setListPrice(state, maker(), prod(), price);
+      save(); closeSheet(); toast(`已记：${maker()} 的${prod()}卖 ¥${price}` + addedNote(added));
+    };
+    if (editing) $('#f-del', root).onclick = async () => {
+      if (!(await ask(`从价目表删掉 ${supplier} 的${product}？已经记的销售不受影响。`, '删掉', true))) return;
+      removeListPrice(state, supplier, product); save(); closeSheet(); toast('已从价目表删掉');
+    };
+  });
 }
 
 function renderCash() {
@@ -461,7 +551,8 @@ function renderSettings() {
       <h3 style="color:var(--text)">这本账是怎么记的</h3>
       <p><b>销售 = 应收。</b>每卖一笔，就多一笔下游欠你的钱。</p>
       <p><b>回款 = 核销应收。</b>下游一次打款可以核销好几笔销售（合并回款），默认按最早的先核销，也可以手动分。</p>
-      <p><b>扣多少税跟着差价走：</b>销售不用填进价，自动按这个品种在卖出那天及之前进的货的平均价算。进价 1、卖 1.5、200 件，全部回款要扣 300×1% + 100×13% = 16。之后再进价格不同的货，不影响已经卖掉的。</p>
+      <p><b>价目表：</b>每个厂家的每个药一个售价，卖给谁都一样。记销售时选好厂家和药，售价自动带出。</p>
+      <p><b>扣多少税跟着差价走：</b>销售不用填进价，自动按这个厂家的这个药在卖出那天及之前进的货的平均价算。进价 1、卖 1.5、200 件，全部回款要扣 300×1% + 100×13% = 16。之后再进价格不同的货，不影响已经卖掉的。</p>
       <p><b>回个人账户：</b>到账就是扣完税的钱。上面那笔回到个人，到账 284，系统反推核销了 300 应收、扣税 16。</p>
       <p><b>回公司账户：</b>到账多少记多少，按同样的规则扣掉税，剩下的就是你在公司的钱。上面那笔回到公司，到账 300，算你的 284。公司什么时候交税不影响这个数。</p>
       <p><b>付上游 = 核销应付。</b>每笔进货就是欠上游的钱；打钱给上游时记一笔付款，可以一次付好几笔进货，从个人账户或公司账户打出都行。从公司付，就从你在公司的钱里扣。</p>
@@ -569,6 +660,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (a === 'sale') return saleForm();
     if (a === 'receipt') return receiptForm(null, act.dataset.customer);
     if (a === 'payment') return paymentForm(null, act.dataset.supplier);
+    if (a === 'price') return priceForm();
     if (a === 'withdraw') return withdrawForm();
     if (a === 'exit-demo') return exitDemo();
   }
@@ -579,6 +671,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (edit === 'purchase') return purchaseForm(state.purchases.find((x) => x.id === id));
     if (edit === 'receipt') return receiptForm(state.receipts.find((x) => x.id === id));
     if (edit === 'payment') return paymentForm((state.payments || []).find((x) => x.id === id));
+    if (edit === 'price') return priceForm(ed.dataset.sup, ed.dataset.prod);
     if (edit === 'withdraw') return withdrawForm(state.withdrawals.find((x) => x.id === id));
   }
 });
@@ -598,7 +691,7 @@ const num = (root, sel) => parseFloat($(sel, root).value);
 // 品种、上游公司、下游公司各一张，存在账本里，跟着云端同步。
 // 点输入框就列出单子里的名字，边打字边筛；打了个单子里没有的新名字，下面会出现
 // 「加入下拉单」（默认勾上，不想加就取消），保存这笔账时才真的加进去。
-const LIST_LABEL = { products: '品种', suppliers: '上游公司', customers: '下游公司' };
+const LIST_LABEL = { products: '品种', suppliers: '上游厂家', customers: '下游公司' };
 
 function pickerField(id, key, value, { placeholder = '', add = true } = {}) {
   return `<div class="picker" data-picker="${key}" data-add="${add ? 1 : 0}">
@@ -612,11 +705,25 @@ function pickerField(id, key, value, { placeholder = '', add = true } = {}) {
 }
 
 // 下拉单里的选项：最近用过的排前面，旁边带一句当前情况（库存、谁欠谁多少）
-function pickerOptions(key, extra = [], owingFirst = false) {
+// 这个厂家有哪些药：价目表里的 + 进过货的
+const makerProducts = (maker) => [...new Set([
+  ...(state.prices || []).filter((p) => p.supplier === maker).map((p) => p.product),
+  ...state.purchases.filter((p) => p.supplier === maker).map((p) => p.product),
+])];
+
+function pickerOptions(key, extra = [], owingFirst = false, maker = '') {
   const used = lastUsed(state, key);
-  const all = [...new Set([...(state.lists?.[key] || []), ...extra])];
+  let all = [...new Set([...(state.lists?.[key] || []), ...extra])];
+  // 选了厂家：品种只列这个厂家的药（它一个都没有时列全部）
+  const mine = key === 'products' && maker ? makerProducts(maker) : [];
+  if (mine.length) all = [...new Set([...mine, ...all.filter((n) => mine.includes(n))])];
   const info = (n) => {
-    if (key === 'products') { const p = R.products.find((x) => x.name === n); return { note: p ? `库存 ${p.stock}` : '', owe: 0 }; }
+    if (key === 'products') {
+      const rows = R.products.filter((x) => x.product === n && (!maker || x.supplier === maker));
+      const stock = rows.reduce((t, x) => t + x.stock, 0);
+      const lp = maker ? listPrice(state, maker, n) : null;
+      return { note: [rows.length ? `库存 ${stock}` : '', lp != null ? `售价 ¥${lp}` : ''].filter(Boolean).join(' · '), owe: 0 };
+    }
     const c = (key === 'customers' ? R.customers : R.suppliers).find((x) => x.name === n);
     const owe = c?.outstanding || 0;
     return { note: owe ? `${key === 'customers' ? '还欠我' : '我还欠'} ${y(owe)}` : '', owe };
@@ -625,13 +732,13 @@ function pickerOptions(key, extra = [], owingFirst = false) {
     .sort((a, b) => (owingFirst && (b.owe > 0) - (a.owe > 0)) || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
 }
 
-function wirePickers(root, { extra = {}, owingFirst = false } = {}) {
+function wirePickers(root, { extra = {}, owingFirst = false, maker = () => '' } = {}) {
   root.querySelectorAll('.picker').forEach((pk) => {
     const key = pk.dataset.picker;
     const inp = pk.querySelector('input.inp');
     const list = pk.querySelector('.picker-list');
     const addRow = pk.querySelector('.picker-add');
-    const opts = () => pickerOptions(key, extra[key] || [], owingFirst);
+    const opts = () => pickerOptions(key, extra[key] || [], owingFirst, maker());
 
     const paint = (showAll) => {
       const q = showAll ? '' : inp.value.trim();
@@ -692,16 +799,19 @@ const addedNote = (added) => (added.length ? `，「${added.join('」「')}」�
 
 // ---------- 进货 / 销售 ----------
 function tradeFields(kind, rec) {
-  const partyLabel = kind === 'sale' ? '下游公司' : '上游公司';
-  const partyKey = kind === 'sale' ? 'customer' : 'supplier';
+  const ph = '选一个，或打个新名字';
+  // 老销售没记厂家时，按能推断出的厂家先填上
+  const maker = rec ? (kind === 'sale' ? (rec.supplier || R.salesById.get(rec.id)?.supplier || '') : rec.supplier) : '';
   return `
     <div class="f"><label>日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
-    <div class="f"><label for="f-product">品种</label>${pickerField('f-product', 'products', rec?.product || '', { placeholder: '选一个，或打个新名字' })}</div>
-    <div class="f"><label for="f-party">${partyLabel}</label>${pickerField('f-party', kind === 'sale' ? 'customers' : 'suppliers', rec?.[partyKey] || '', { placeholder: '选一个，或打个新名字' })}</div>
+    <div class="f"><label for="f-maker">${kind === 'sale' ? '哪个厂家的货' : '上游厂家'}</label>${pickerField('f-maker', 'suppliers', maker, { placeholder: ph })}</div>
+    <div class="f"><label for="f-product">品种</label>${pickerField('f-product', 'products', rec?.product || '', { placeholder: ph })}</div>
+    ${kind === 'sale' ? `<div class="f"><label for="f-party">卖给哪家</label>${pickerField('f-party', 'customers', rec?.customer || '', { placeholder: ph })}</div>` : ''}
     <div class="two">
       <div class="f"><label>数量</label><input class="inp" type="number" inputmode="decimal" id="f-qty" value="${rec?.qty ?? ''}"></div>
       <div class="f"><label>${kind === 'sale' ? '售价' : '进价'}（元/件）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-price" value="${rec?.price ?? ''}"></div>
     </div>
+    ${kind === 'sale' ? '<div class="price-note" id="f-price-note"></div>' : ''}
     <div class="calc" id="f-calc"></div>
     ${rec ? (kind === 'sale' ? batchHistory(state.receipts, 'saleId', rec.id, '这批货的回款') : batchHistory(state.payments || [], 'purchaseId', rec.id, '这批货的付款')) : ''}
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}" placeholder="批号、票号…"></div>
@@ -710,7 +820,7 @@ function tradeFields(kind, rec) {
 
 function purchaseForm(rec) {
   openSheet(rec ? '改进货' : '记进货', tradeFields('purchase', rec), (root) => {
-    wirePickers(root);
+    wirePickers(root, { maker: () => $('#f-maker', root).value.trim() });
     const calc = () => {
       const qty = num(root, '#f-qty') || 0, price = num(root, '#f-price') || 0;
       const pp = rec && R.purchasesById.get(rec.id);
@@ -719,8 +829,8 @@ function purchaseForm(rec) {
     };
     root.addEventListener('input', calc); calc();
     $('#f-save', root).onclick = () => {
-      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier: $('#f-party', root).value.trim(), product: $('#f-product', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), note: $('#f-note', root).value.trim() };
-      if (!r.date || !r.supplier || !r.product || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、上游、品种、数量、单价都要填');
+      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier: $('#f-maker', root).value.trim(), product: $('#f-product', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), note: $('#f-note', root).value.trim() };
+      if (!r.date || !r.supplier || !r.product || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、厂家、品种、数量、进价都要填');
       const pp = rec && R.purchasesById.get(rec.id);
       if (pp && pp.paid > toCents(purchaseAmount(r))) return toast(`这笔已付 ${y(pp.paid)}，金额不能改得比它小`);
       if (pp && pp.paid && r.supplier !== rec.supplier) return toast('这笔已付过款，不能换上游；先删付款');
@@ -737,29 +847,61 @@ function purchaseForm(rec) {
 
 function saleForm(rec) {
   openSheet(rec ? '改销售' : '记销售', tradeFields('sale', rec), (root) => {
-    wirePickers(root);
+    const maker = () => $('#f-maker', root).value.trim();
+    const product = () => $('#f-product', root).value.trim();
+    wirePickers(root, { maker });
+
+    // 售价按价目表自动带出：每个厂家的每个药，卖给谁都是这个价
+    let autoPrice = null;
+    const fillPrice = () => {
+      const lp = listPrice(state, maker(), product());
+      const el = $('#f-price', root);
+      if (lp != null) { el.value = lp; autoPrice = String(lp); }
+      else if (autoPrice != null && el.value === autoPrice) { el.value = ''; autoPrice = null; }
+      paintPriceNote();
+    };
+    const paintPriceNote = () => {
+      const box = $('#f-price-note', root);
+      const m = maker(), pr = product();
+      const price = num(root, '#f-price');
+      if (!m || !pr) { box.innerHTML = ''; return; }
+      const lp = listPrice(state, m, pr);
+      if (lp == null) {
+        box.innerHTML = price > 0
+          ? `<label class="picker-add"><input type="checkbox" id="f-price-save" checked><span>把「${esc(m)} ${esc(pr)}」售价 ¥${price} 记进价目表，下次自动带出</span></label>`
+          : `<p class="hint">价目表里还没有 ${esc(m)} 的${esc(pr)}，填一次售价就能记进去</p>`;
+      } else if (price === lp || !(price > 0)) {
+        box.innerHTML = `<p class="hint">按价目表：${esc(m)} 的${esc(pr)}卖 ¥${lp}</p>`;
+      } else {
+        box.innerHTML = `<p class="hint warn-text">价目表是 ¥${lp}，这笔按 ¥${price} 记</p>
+          <label class="picker-add"><input type="checkbox" id="f-price-save"><span>同时把价目表改成 ¥${price}</span></label>`;
+      }
+    };
+    $('#f-maker', root).addEventListener('input', fillPrice);
+    $('#f-product', root).addEventListener('input', fillPrice);
+    $('#f-price', root).addEventListener('input', paintPriceNote);
+    paintPriceNote();
 
     const calc = () => {
       const qty = num(root, '#f-qty') || 0, price = num(root, '#f-price') || 0;
-      const product = $('#f-product', root).value.trim();
       const date = $('#f-date', root).value || today();
-      const p = R.products.find((x) => x.name === product);
+      const p = R.products.find((x) => x.product === product() && x.supplier === maker());
       const amt = toCents(qty * price);
       let html = `<div class="ln total"><span>销售金额（应收）</span><span class="num">${y(amt)}</span></div>`;
       if (p && p.inQty) {
         const stock = p.stock + (rec && rec.product === p.name ? Number(rec.qty) : 0);
         html += `<div class="ln"><span>库存</span><span class="num ${stock < qty ? 'bad' : ''}">${stock}${stock < qty ? '（不够）' : ''}</span></div>`;
       }
-      if (product && amt) {
-        // 进价不用填：按这个品种在卖出那天及之前进的货的平均价自动算
-        const { cost, basis } = costBasis(state, product, date);
+      if (product() && amt) {
+        // 进价不用填：按这个厂家的这个药，在卖出那天及之前进的货的平均价自动算
+        const { cost, basis } = costBasis(state, product(), date, maker());
         if (basis === 'none') {
-          html += `<div class="ln warn"><span>还没记过「${esc(product)}」的进货，差价税先按全额算；补记进货后会自动重算</span></div>`;
+          html += `<div class="ln warn"><span>还没记过${maker() ? ` ${esc(maker())} 的` : ''}「${esc(product())}」的进货，差价税先按全额算；补记进货后会自动重算</span></div>`;
         } else {
           const b = saleTaxBreakdown({ qty, price }, cost, R.settings);
           const cogs = toCents(cost * qty);
           const costText = +cost.toFixed(4);
-          html += `<div class="ln"><span>进价按 ¥${costText} 算（${basis === 'before' ? `${date.slice(5)} 之前进的${esc(product)}的平均价` : `${esc(product)}全部进货的平均价`}）</span></div>
+          html += `<div class="ln"><span>进价按 ¥${costText} 算（${basis === 'before' ? `${date.slice(5)} 之前进的这个药的平均价` : '这个药全部进货的平均价'}）</span></div>
             <div class="ln"><span>差价 (${price} − ${costText}) × ${qty}</span><span class="num">${y(amt - cogs)}</span></div>
             <div class="ln"><span>回款时扣：回款额 × ${pct(R.settings.revenueRate)}</span><span class="num">${y(b.revenueTax)}</span></div>
             <div class="ln"><span>　　　　+ 差价 × ${pct(R.settings.marginRate)}</span><span class="num">${y(b.marginTax)}</span></div>
@@ -774,13 +916,16 @@ function saleForm(rec) {
     };
     root.addEventListener('input', calc); calc();
     $('#f-save', root).onclick = () => {
-      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, customer: $('#f-party', root).value.trim(), product: $('#f-product', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), note: $('#f-note', root).value.trim() };
-      if (!r.date || !r.customer || !r.product || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、下游、品种、数量、售价都要填');
+      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier: maker(), product: product(), customer: $('#f-party', root).value.trim(), qty: num(root, '#f-qty'), price: num(root, '#f-price'), note: $('#f-note', root).value.trim() };
+      if (!r.date || !r.supplier || !r.product || !r.customer || !(r.qty > 0) || !(r.price >= 0)) return toast('日期、厂家、品种、卖给哪家、数量、售价都要填');
       const s = rec && R.salesById.get(rec.id);
       if (s && s.settled > toCents(saleAmount(r))) return toast(`这笔已回款 ${y(s.settled)}，金额不能改得比它小`);
       if (s && s.settled && r.customer !== rec.customer) return toast('这笔已有回款，不能换下游；先删回款');
       const added = commitPickers(root);
-      upsert(state.sales, r); save(); closeSheet(); toast('已记销售' + addedNote(added));
+      const savePrice = $('#f-price-save', root)?.checked;
+      if (savePrice) setListPrice(state, r.supplier, r.product, r.price);
+      upsert(state.sales, r); save(); closeSheet();
+      toast('已记销售' + addedNote(added) + (savePrice ? '，售价已记进价目表' : ''));
     };
     if (rec) $('#f-del', root).onclick = async () => {
       const used = state.receipts.filter((x) => (x.allocations || []).some((a) => a.saleId === rec.id));
@@ -911,7 +1056,7 @@ function receiptForm(rec, presetCustomer) {
       const open = customer ? openSalesFor(state, customer, rec?.id, keep) : [];
       ed.render(open.map((o) => ({
         id: o.sale.id,
-        title: `${o.sale.date} ${o.sale.product} ${o.sale.qty}件 × ${o.sale.price}`,
+        title: `${o.sale.date} ${o.sale.product}${rates.get(o.sale.id).supplier ? `（${rates.get(o.sale.id).supplier}）` : ''} ${o.sale.qty}件 × ${o.sale.price}`,
         sub: `这批 ${y(o.total)}${o.settled ? `，别的回款已回 ${y(o.settled)}` : ''} · 税负 ${pct(o.rate)}`,
         outstanding: o.outstanding,
         rate: o.rate,
@@ -1116,7 +1261,7 @@ function demoState() {
     { id: 's2', date: d(lm, 4), customer: '仁和医院', product: '甲', qty: 60, price: 1.5, note: '' },
     { id: 's3', date: d(lm, 6), customer: '康宁大药房', product: '甲', qty: 60, price: 1.5, note: '' },
     { id: 's4', date: d(lm, 8), customer: '仁和医院', product: '乙', qty: 300, price: 11, note: '' },
-    { id: 's5', date: d(lm, 12), customer: '康宁大药房', product: '乙', qty: 150, price: 11.3, note: '' },
+    { id: 's5', date: d(lm, 12), customer: '康宁大药房', product: '乙', qty: 150, price: 11, note: '' },
   );
   s.receipts.push(
     // 仁和医院一次打 3510，合并核销三笔销售
@@ -1130,6 +1275,8 @@ function demoState() {
     { id: 'pay1', date: d(lm, 2), supplier: '华东医药供应链', account: 'personal', amount: 200, allocations: [{ purchaseId: 'p1', amount: 200 }], note: '' },
     { id: 'pay2', date: d(lm, 22), supplier: '华东医药供应链', account: 'company', amount: 3000, allocations: [{ purchaseId: 'p2', amount: 3000 }], note: '' },
   );
+  for (const x of s.sales) x.supplier = '华东医药供应链';
+  s.prices = [{ supplier: '华东医药供应链', product: '甲', price: 1.5 }, { supplier: '华东医药供应链', product: '乙', price: 11 }];
   s.lists = seedLists(s);
   return s;
 }
