@@ -406,6 +406,27 @@ function priceForm(supplier = '', product = '') {
   });
 }
 
+// 回款 / 付款记录多了：按公司、药名、日期、备注搜。记住搜的词，切页回来还在
+let recordQuery = '';
+const recordSearch = (n) => (n > 3 ? `<input class="inp sm rec-search" id="rec-q" value="${esc(recordQuery)}" placeholder="搜公司、药名、日期、备注" aria-label="搜记录">` : '');
+function applyRecordSearch(page) {
+  const list = page.querySelector('[data-records]');
+  if (!list) return;
+  const q = recordQuery.trim();
+  let lastDay = null, dayHasHit = false, hits = 0;
+  const flush = () => { if (lastDay) lastDay.hidden = !dayHasHit; };
+  for (const li of list.children) {
+    if (li.classList.contains('day')) { flush(); lastDay = li; dayHasHit = false; continue; }
+    const ok = !q || li.textContent.includes(q);
+    li.hidden = !ok;
+    if (ok) { dayHasHit = true; hits++; }
+  }
+  flush();
+  let none = list.querySelector('[data-nohit]');
+  if (!none) { none = document.createElement('li'); none.className = 'empty'; none.dataset.nohit = ''; none.textContent = '没有搜到'; list.appendChild(none); }
+  none.hidden = !(q && !hits);
+}
+
 function renderCash() {
   const isIn = seg.cash === 'in';
   let body;
@@ -431,7 +452,7 @@ function renderCash() {
             <div class="r"><div class="amt num">${y(c.outstanding)}</div></div>
           </li>`).join('')}</ul>` : '<div class="empty">都回清了</div>'}
       </div>
-      <div class="card"><h3>回款记录</h3><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有回款记录</li>'}</ul></div>`;
+      <div class="card"><h3>回款记录</h3>${recordSearch(items.length)}<ul class="list" data-records>${items.length ? groupByDate(items) : '<li class="empty">还没有回款记录</li>'}</ul></div>`;
   } else {
     const oweUp = R.suppliers.filter((c) => c.outstanding > 0);
     const items = [...(state.payments || [])].sort(byDateDesc).map((p0) => {
@@ -452,7 +473,7 @@ function renderCash() {
             <div class="r"><div class="amt num">${y(c.outstanding)}</div></div>
           </li>`).join('')}</ul>` : '<div class="empty">都付清了</div>'}
       </div>
-      <div class="card"><h3>付款记录</h3><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有付款记录</li>'}</ul></div>`;
+      <div class="card"><h3>付款记录</h3>${recordSearch(items.length)}<ul class="list" data-records>${items.length ? groupByDate(items) : '<li class="empty">还没有付款记录</li>'}</ul></div>`;
   }
   $('#page-receipt').innerHTML = `
     <header class="hdr"><div><h1>收付款</h1><p class="sub">${isIn ? '下游打给我的钱，一笔可以核销多笔销售' : '我打给上游的钱，一笔可以付多笔进货'}</p></div>
@@ -460,6 +481,10 @@ function renderCash() {
     ${demoBanner()}
     ${segCtl('cash', [['in', `回款 · 收 ${fmt(R.totals.personalIn + R.totals.companyIn)}`], ['out', `付款 · 付 ${fmt(R.totals.paidTotal)}`]])}
     ${body}`;
+  const page = $('#page-receipt');
+  const q = page.querySelector('#rec-q');
+  if (q) q.oninput = () => { recordQuery = q.value; applyRecordSearch(page); };
+  applyRecordSearch(page);
 }
 
 function flowList(flow) {
@@ -1200,8 +1225,14 @@ function saleForm(rec) {
 // 回清几批再加一批的一部分，也可以跳着挑。每批一行，金额能手改，也能点「全额 / 补剩下的 / 不回」。
 function allocEditor(box, { words, restFor, onChange }) {
   let rows = [];
+  // 筛选：批次多了按厂家 / 品种 / 关键字找。只是藏起来，藏起来的批次分的钱照样算
+  const filter = { maker: '', product: '', q: '' };
   const input = (id) => box.querySelector(`[data-aid="${id}"]`);
   const value = (id) => toCents(input(id)?.value);
+  const shown = (r) => (!filter.maker || r.tags?.maker === filter.maker)
+    && (!filter.product || r.tags?.product === filter.product)
+    && (!filter.q || r.search.includes(filter.q));
+  const filtered = () => Boolean(filter.maker || filter.product || filter.q);
 
   function status(row) {
     const el = box.querySelector(`[data-st="${row.id}"]`);
@@ -1217,13 +1248,69 @@ function allocEditor(box, { words, restFor, onChange }) {
     el.className = 'alloc-st ' + c;
   }
 
+  // 按当前筛选显示 / 隐藏；藏起来的批次里分了钱要提一句，免得以为没分
+  function applyFilter() {
+    let hiddenN = 0, hiddenSum = 0, shownN = 0;
+    for (const r of rows) {
+      const el = box.querySelector(`[data-row="${r.id}"]`);
+      const ok = shown(r);
+      el.hidden = !ok;
+      if (ok) shownN++;
+      else if (value(r.id) > 0) { hiddenN++; hiddenSum += value(r.id); }
+    }
+    const note = box.querySelector('[data-fnote]');
+    if (note) {
+      note.innerHTML = filtered()
+        ? `显示 ${shownN} / ${rows.length} 批${hiddenN ? `，<b>筛掉的 ${hiddenN} 批里还分了 ${y(hiddenSum)}</b>（照样算）` : ''} <button type="button" class="linkish" data-fclear>清空筛选</button>`
+        : '';
+      note.hidden = !filtered();
+    }
+    const empty = box.querySelector('[data-fempty]');
+    if (empty) empty.hidden = !(filtered() && !shownN);
+  }
+
+  // 下拉选项：选了厂家，品种只列这个厂家的
+  function filterBar() {
+    const makers = [...new Set(rows.map((r) => r.tags?.maker).filter(Boolean))].sort();
+    if (filter.maker && !makers.includes(filter.maker)) filter.maker = '';
+    const products = [...new Set(rows.filter((r) => !filter.maker || r.tags?.maker === filter.maker).map((r) => r.tags?.product).filter(Boolean))].sort();
+    if (filter.product && !products.includes(filter.product)) filter.product = '';
+    const opt = (list, cur, all) => `<option value="">${all}</option>` + list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v)}</option>`).join('');
+    const bar = [
+      makers.length > 1 ? `<select class="inp sm" data-f="maker" aria-label="按厂家筛">${opt(makers, filter.maker, '全部厂家')}</select>` : '',
+      products.length > 1 ? `<select class="inp sm" data-f="product" aria-label="按品种筛">${opt(products, filter.product, '全部品种')}</select>` : '',
+      `<input class="inp sm" data-f="q" value="${esc(filter.q)}" placeholder="搜日期、备注" aria-label="搜日期、备注">`,
+    ].join('');
+    return `<div class="alloc-filter">${bar}</div><div class="alloc-fnote" data-fnote hidden></div>`;
+  }
+
   box.addEventListener('input', (e) => {
+    const f = e.target.closest('[data-f]');
+    if (f) {
+      filter[f.dataset.f] = f.value.trim();
+      if (f.dataset.f === 'maker') { // 换了厂家，品种下拉跟着变
+        const bar = box.querySelector('.alloc-filter');
+        const tmp = document.createElement('div');
+        tmp.innerHTML = filterBar();
+        bar.replaceWith(tmp.firstElementChild);
+      }
+      applyFilter();
+      return;
+    }
     const i = e.target.closest('[data-aid]');
     if (!i) return;
     status(rows.find((r) => r.id === i.dataset.aid));
     onChange();
   });
   box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-fclear]')) {
+      filter.maker = filter.product = filter.q = '';
+      const tmp = document.createElement('div');
+      tmp.innerHTML = filterBar();
+      box.querySelector('.alloc-filter').replaceWith(tmp.firstElementChild);
+      applyFilter();
+      return;
+    }
     const b = e.target.closest('[data-fill]');
     if (!b) return;
     const row = rows.find((r) => r.id === b.closest('[data-row]').dataset.row);
@@ -1232,13 +1319,15 @@ function allocEditor(box, { words, restFor, onChange }) {
       : Math.max(0, Math.min(row.outstanding, restFor(row.id)));
     input(row.id).value = v ? toYuan(v) : '';
     status(row);
+    applyFilter();
     onChange();
   });
 
   return {
     render(list, preset, emptyText) {
-      rows = list;
-      box.innerHTML = rows.length ? rows.map((r) => `
+      rows = list.map((r) => ({ ...r, search: `${r.title} ${r.sub} ${r.search || ''}`.replace(/<[^>]+>/g, '') }));
+      // 批次多于 3 批才显示筛选
+      box.innerHTML = rows.length ? `${rows.length > 3 ? filterBar() : ''}${rows.map((r) => `
         <div class="alloc-row" data-row="${r.id}">
           <div><div>${esc(r.title)}</div><div class="s">${r.sub}</div></div>
           <input class="inp sm num" type="number" inputmode="decimal" step="0.01" data-aid="${r.id}" value="${preset.get(r.id) ?? ''}" placeholder="0" aria-label="${esc(r.title)} 这次分多少">
@@ -1246,12 +1335,34 @@ function allocEditor(box, { words, restFor, onChange }) {
             <span class="alloc-st" data-st="${r.id}"></span>
             <span class="chips"><button type="button" data-fill="full">全额</button><button type="button" data-fill="rest">补剩下的</button><button type="button" data-fill="none">${words.noneBtn}</button></span>
           </div>
-        </div>`).join('') : `<div class="empty">${emptyText}</div>`;
+        </div>`).join('')}<div class="empty" data-fempty hidden>没有对得上的批次</div>` : `<div class="empty">${emptyText}</div>`;
       rows.forEach(status);
+      if (rows.length > 3) applyFilter();
     },
     rows: () => rows,
     lines: () => rows.map((r) => ({ ...r, cents: value(r.id) })),
+    filtered: () => rows.length > 3 && filtered(),
+    visible: (id) => shown(rows.find((r) => r.id === id)),
   };
+}
+
+// 筛选状态下「从最早的开始分」：先扣掉筛掉的批次里已经分的，剩下的按先后分给显示的批次
+// netOf(row, cents)：这一笔分到这批，按到账算是多少（个人账户要扣税，公司账户就是它本身）
+function autoFillVisible(ed, amountC, netOf, grossFor) {
+  const lines = ed.lines();
+  const preset = new Map();
+  let left = amountC;
+  for (const l of lines) if (!ed.visible(l.id)) { preset.set(l.id, l.cents ? toYuan(l.cents) : ''); left -= netOf(l, l.cents); }
+  for (const r of ed.rows()) {
+    if (!ed.visible(r.id)) continue;
+    let take = 0;
+    if (left > 0) {
+      const cap = netOf(r, r.outstanding);
+      if (cap <= left) { take = r.outstanding; left -= cap; } else { take = Math.min(r.outstanding, grossFor(r, left)); left = 0; }
+    }
+    preset.set(r.id, take ? toYuan(take) : '');
+  }
+  return preset;
 }
 
 // 分配结果的一句话总结：分到几批、几批回清、几批回一部分
@@ -1317,6 +1428,8 @@ function receiptForm(rec, presetCustomer) {
       ed.render(open.map((o) => ({
         id: o.sale.id,
         title: `${o.sale.date} ${o.sale.product}${rates.get(o.sale.id).supplier ? `（${rates.get(o.sale.id).supplier}）` : ''} ${o.sale.qty}件 × ${o.sale.price}`,
+        tags: { maker: rates.get(o.sale.id).supplier, product: o.sale.product },
+        search: o.sale.note || '',
         sub: `这批 ${y(o.total)}${o.settled ? `，别的回款已回 ${y(o.settled)}` : ''} · 税负 ${pct(o.rate)}`,
         outstanding: o.outstanding,
         rate: o.rate,
@@ -1350,8 +1463,16 @@ function receiptForm(rec, presetCustomer) {
     };
 
     const auto = () => {
-      const fn = account === ACCOUNT.PERSONAL ? autoAllocateNet : autoAllocate;
-      preset = new Map(fn(state, customer, toYuan(amount()), rec?.id).map((a) => [a.saleId, a.amount]));
+      if (ed.filtered()) {
+        // 筛了厂家 / 品种：只在显示出来的批次里从最早的开始分
+        const personal = account === ACCOUNT.PERSONAL;
+        preset = autoFillVisible(ed, amount(),
+          (r, c) => (personal ? c - Math.round(c * r.rate) : c),
+          (r, left) => (personal ? Math.round(left / (1 - r.rate)) : left));
+      } else {
+        const fn = account === ACCOUNT.PERSONAL ? autoAllocateNet : autoAllocate;
+        preset = new Map(fn(state, customer, toYuan(amount()), rec?.id).map((a) => [a.saleId, a.amount]));
+      }
       paintAlloc();
     };
 
@@ -1418,6 +1539,8 @@ function paymentForm(rec, presetSupplier) {
       ed.render(open.map((o) => ({
         id: o.purchase.id,
         title: `${o.purchase.date} ${o.purchase.product} ${o.purchase.qty}件 × ${o.purchase.price}`,
+        tags: { maker: o.purchase.supplier, product: o.purchase.product },
+        search: o.purchase.note || '',
         sub: `这批 ${y(o.total)}${o.paid ? `，别的付款已付 ${y(o.paid)}` : ''}`,
         outstanding: o.outstanding,
         unit: toCents(o.purchase.price),
@@ -1443,7 +1566,9 @@ function paymentForm(rec, presetSupplier) {
     };
 
     const auto = () => {
-      preset = new Map(autoAllocatePayment(state, supplier, toYuan(amount()), rec?.id).map((a) => [a.purchaseId, a.amount]));
+      preset = ed.filtered()
+        ? autoFillVisible(ed, amount(), (r, c) => c, (r, left) => left)
+        : new Map(autoAllocatePayment(state, supplier, toYuan(amount()), rec?.id).map((a) => [a.purchaseId, a.amount]));
       paintAlloc();
     };
 
