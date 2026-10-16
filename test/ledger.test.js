@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyState, compute, autoAllocate, autoAllocateNet, allocationTax, autoAllocatePayment, previewWithdrawal, previewPayment, toYuan } from '../public/ledger/core.js';
+import {
+  emptyState, compute, autoAllocate, autoAllocateNet, allocationTax, autoAllocatePayment,
+  previewWithdrawal, previewPayment, companyBalanceAt, toYuan,
+} from '../public/ledger/core.js';
 
 const y = (c) => toYuan(c);
 
@@ -11,6 +14,9 @@ function single() {
   s.sales.push({ id: 's1', date: '2026-09-02', customer: '下游C', product: '甲', qty: 200, price: 1.5, cost: 1 });
   return s;
 }
+
+const companyReceipt = (s, amount = 300, date = '2026-09-10') =>
+  s.receipts.push({ id: 'r1', date, customer: '下游C', account: 'company', amount, allocations: [{ saleId: 's1', amount }] });
 
 test('扣税 = 200×1.5×1% + 0.5×200×13% = 16', () => {
   const r = compute(single());
@@ -28,51 +34,43 @@ test('回到个人账户：到账 284 反推核销 300，已扣税 16', () => {
   s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'personal', amount: 284, allocations: alloc });
   const r = compute(s);
   assert.equal(y(r.totals.personalTax), 16);
+  assert.equal(y(r.totals.personalBalance), 284);
   assert.equal(y(r.totals.receivable), 0);
 });
 
-test('回到公司账户：月度扣税扣 16，之后 284 可全额提', () => {
+test('回到公司账户：到账 300，算你的 284，不用管公司什么时候交税', () => {
   const s = single();
-  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 300, allocations: [{ saleId: 's1', amount: 300 }] });
-  let r = compute(s);
-  assert.equal(y(r.totals.pendingTax), 16);
-  assert.equal(y(r.totals.maxWithdrawNet), 284);
-  s.taxRuns.push({ id: 't1', date: '2026-10-08', cutoff: '2026-09-30' });
-  r = compute(s);
-  assert.equal(y(r.taxRuns.get('t1').tax), 16);
-  assert.equal(y(r.totals.taxedBal), 284);
-  const w = previewWithdrawal(s, 284, '2026-10-09');
-  assert.equal(y(w.tax), 0);
-  assert.equal(y(w.gross), 284);
+  companyReceipt(s);
+  const r = compute(s);
+  assert.equal(y(r.totals.companyBalance), 284);
+  assert.equal(y(r.totals.companyTax), 16);
+  assert.equal(y(r.receipts.get('r1').mineC), 284);
+  assert.equal(y(r.totals.netProfitEst), 84);
 });
 
-test('没扣过税就提现：边提边扣，月底只扣剩下的', () => {
+test('从公司提现：提多少到手多少，最多提你在公司的钱', () => {
   const s = single();
-  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 300, allocations: [{ saleId: 's1', amount: 300 }] });
-  // 想拿 142 到手 → 划出 150、扣税 8（税负 16/300）
-  const w = previewWithdrawal(s, 142, '2026-09-15');
-  assert.equal(y(w.gross), 150);
-  assert.equal(y(w.tax), 8);
-  s.withdrawals.push({ id: 'w1', date: '2026-09-15', net: 142 });
-  s.taxRuns.push({ id: 't1', date: '2026-10-08', cutoff: '2026-09-30' });
+  companyReceipt(s);
+  assert.equal(previewWithdrawal(s, 284, '2026-09-11').shortfall, 0);
+  assert.equal(y(previewWithdrawal(s, 300, '2026-09-11').shortfall), 16);
+  assert.equal(y(previewWithdrawal(s, 100, '2026-09-09').shortfall), 100); // 回款到账前
+  s.withdrawals.push({ id: 'w1', date: '2026-09-11', net: 284 });
   const r = compute(s);
-  assert.equal(y(r.taxRuns.get('t1').tax), 8);
+  assert.equal(y(r.totals.companyBalance), 0);
+  assert.equal(y(r.totals.personalBalance), 284);
   assert.equal(y(r.totals.taxPaid), 16);
-  assert.equal(y(r.totals.companyBalance), 142);
 });
 
 test('合并回款核销差价不同的两笔销售：税按各自差价算', () => {
   const s = single();
   s.purchases.push({ id: 'p2', date: '2026-09-01', supplier: '上游A', product: '乙', qty: 100, price: 1 });
   s.sales.push({ id: 's2', date: '2026-09-05', customer: '下游C', product: '乙', qty: 100, price: 2, cost: 1 });
-  // 一次回 400：先核销甲 300，再核销乙 100
   const alloc = autoAllocate(s, '下游C', 400);
   assert.deepEqual(alloc, [{ saleId: 's1', amount: 300 }, { saleId: 's2', amount: 100 }]);
   // 甲 16 + 乙 100×1% + 50×13% = 1 + 6.5 → 23.5
   assert.equal(y(allocationTax(s, alloc)), 23.5);
   s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 400, allocations: alloc });
-  s.taxRuns.push({ id: 't1', date: '2026-10-08', cutoff: '2026-09-30' });
-  assert.equal(y(compute(s).taxRuns.get('t1').tax), 23.5);
+  assert.equal(y(compute(s).totals.companyBalance), 376.5);
 });
 
 test('没填进价就用该品种平均进价', () => {
@@ -81,12 +79,12 @@ test('没填进价就用该品种平均进价', () => {
   assert.equal(y(compute(s).salesById.get('s1').taxFull), 16);
 });
 
-test('删掉一笔回款，后面的提现自动标出余额不足', () => {
+test('删掉一笔回款，后面的提现自动标出钱不够', () => {
   const s = single();
   s.withdrawals.push({ id: 'w1', date: '2026-09-20', net: 50 });
   const r = compute(s);
   assert.equal(r.withdrawals.get('w1').shortfall, 5000);
-  assert.ok(r.issues.some((t) => t.includes('不够')));
+  assert.ok(r.issues.some((t) => t.includes('只有')));
 });
 
 test('税率可改', () => {
@@ -110,45 +108,30 @@ test('进货 = 欠上游；合并付款按先后核销多笔进货', () => {
   assert.equal(y(r.totals.personalBalance), -250); // 先从自己口袋垫钱
 });
 
-test('从公司账户付上游：税照扣 16，最后能提 84', () => {
+test('从公司付上游：回款 300、付 200，你在公司还剩 84', () => {
   const s = single();
-  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 300, allocations: [{ saleId: 's1', amount: 300 }] });
+  companyReceipt(s);
   s.payments.push({ id: 'pay1', date: '2026-09-12', supplier: '上游A', account: 'company', amount: 200, allocations: [{ purchaseId: 'p1', amount: 200 }] });
-  let r = compute(s);
-  assert.equal(y(r.totals.companyBalance), 100);
-  assert.equal(y(r.totals.pendingTax), 16);
-  assert.equal(y(r.totals.maxWithdrawNet), 84);
-  assert.equal(r.payments.get('pay1').reserveUsed, 0);
-  s.taxRuns.push({ id: 't1', date: '2026-10-08', cutoff: '2026-09-30' });
-  r = compute(s);
-  assert.equal(y(r.taxRuns.get('t1').tax), 16);
-  assert.equal(y(r.totals.taxedBal), 84);
-  s.withdrawals.push({ id: 'w1', date: '2026-10-09', net: 84 });
-  r = compute(s);
-  assert.equal(y(r.totals.companyBalance), 0);
-  assert.equal(y(r.totals.personalBalance), 84);
-  assert.equal(y(r.totals.taxPaid), 16);
+  const r = compute(s);
+  assert.equal(y(r.totals.companyBalance), 84);
+  assert.equal(y(r.totals.payable), 0);
+  assert.equal(r.payments.get('pay1').over, 0);
+  assert.equal(y(companyBalanceAt(s, '2026-09-11')), 284);
 });
 
-test('付上游后还没扣税就提现：提完 84 正好把 16 税交掉', () => {
+test('从公司付得比你在公司的钱多：照记，标出超了多少', () => {
   const s = single();
-  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 300, allocations: [{ saleId: 's1', amount: 300 }] });
-  s.payments.push({ id: 'pay1', date: '2026-09-12', supplier: '上游A', account: 'company', amount: 200, allocations: [{ purchaseId: 'p1', amount: 200 }] });
-  const w = previewWithdrawal(s, 84, '2026-09-15');
-  assert.equal(y(w.tax), 16);
-  assert.equal(y(w.gross), 100);
-});
-
-test('付上游用掉了留着交税的钱：提醒；余额不够时付不出去', () => {
-  const s = single();
-  s.receipts.push({ id: 'r1', date: '2026-09-10', customer: '下游C', account: 'company', amount: 300, allocations: [{ saleId: 's1', amount: 300 }] });
-  const p = previewPayment(s, { date: '2026-09-12', supplier: '上游A', account: 'company', amount: 290, allocations: [] });
-  assert.equal(y(p.reserveUsed), 6);
-  assert.equal(p.shortfall, 0);
+  companyReceipt(s);
+  assert.equal(y(previewPayment(s, { date: '2026-09-12', supplier: '上游A', account: 'company', amount: 290 }).over), 6);
   s.payments.push({ id: 'pay1', date: '2026-09-12', supplier: '上游A', account: 'company', amount: 290, allocations: [] });
   const r = compute(s);
-  assert.equal(y(r.totals.taxGap), 6);
-  assert.ok(r.issues.some((t) => t.includes('不够交')));
-  // 公司账户里钱不够，付不出去
-  assert.equal(y(previewPayment(s, { date: '2026-09-13', supplier: '上游A', account: 'company', amount: 50 }).shortfall), 40);
+  assert.equal(y(r.totals.companyBalance), -6);
+  assert.ok(r.issues.some((t) => t.includes('占用')));
+});
+
+test('老数据里的月度扣税记录被忽略，不影响余额', () => {
+  const s = single();
+  companyReceipt(s);
+  s.taxRuns = [{ id: 't1', date: '2026-10-08', cutoff: '2026-09-30' }];
+  assert.equal(y(compute(s).totals.companyBalance), 284);
 });

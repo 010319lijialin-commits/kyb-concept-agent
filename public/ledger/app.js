@@ -2,8 +2,8 @@ import {
   ACCOUNT, emptyState, compute, autoAllocate, autoAllocateNet, openSalesFor, saleRates,
   openPurchasesFor, autoAllocatePayment, paymentAllocated, previewPayment,
   saleTaxBreakdown, avgCosts, normSettings, pct,
-  previewWithdrawal, previewTaxRun, overdueUntaxed, receiptGross,
-  saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, monthEnd, prevMonth,
+  previewWithdrawal, companyBalanceAt, receiptGross,
+  saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, prevMonth,
 } from './core.js';
 import { createStore } from './store.js';
 
@@ -121,7 +121,6 @@ const ICON = {
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/>',
   withdraw: '<rect x="3" y="3.5" width="18" height="10" rx="2"/><path d="M12 8v12.5M8 16.5l4 4 4-4"/>',
   pay: '<rect x="2.5" y="6" width="13" height="12" rx="2"/><circle cx="9" cy="12" r="2.4"/><path d="M15.5 12h6M18.5 9l3 3-3 3"/>',
-  tax: '<path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z"/><path d="M9 7.5h6M9 11h6M9 14.5h3"/>',
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
 
@@ -187,9 +186,6 @@ document.querySelector('.tabbar').addEventListener('click', (e) => {
 
 function reminders() {
   const out = [];
-  const od = overdueUntaxed(R, today());
-  if (od.amount > 0)
-    out.push(`<div class="alert warn"><span>公司账户有 ${od.count} 笔 ${od.cutoff.slice(0, 7)} 及以前的回款共 ${y(od.amount)} 还没扣税</span><button class="btn sm" data-act="taxrun">去扣税</button></div>`);
   for (const i of R.issues) out.push(`<div class="alert bad"><span>${esc(i)}</span></div>`);
   return demoBanner() + out.join('');
 }
@@ -207,13 +203,14 @@ function renderHome() {
     ${reminders()}
     <div class="card hero">
       <div class="hero-top">
-        <div><div class="k">公司账户里现在最多能提到手</div><div class="v num">${y(T.maxWithdrawNet)}</div></div>
+        <div><div class="k">你在公司账户的钱（已扣税，可以全提）</div><div class="v num">${y(T.companyBalance)}</div></div>
         <button class="btn sm hero-btn" data-act="withdraw">${icon('withdraw')}提现</button>
       </div>
       <div class="split num">
-        <span>公司余额 ${y(T.companyBalance)}</span>
-        <span>其中未扣税 ${y(T.untaxedBal)}</span>
-        <span>待扣税 ${y(T.pendingTax)}</span>
+        <span>到账 ${y(T.companyIn)}</span>
+        <span>扣税 ${y(T.companyTax)}</span>
+        <span>付上游 ${y(T.companyPaid)}</span>
+        <span>已提 ${y(T.withdrawn)}</span>
       </div>
     </div>
     <div class="quick">
@@ -225,10 +222,10 @@ function renderHome() {
     <div class="grid">
       <div class="stat tap" data-goto="receipt" data-goseg="cash:in"><div class="k">下游还欠我</div><div class="v num">${y(T.receivable)}</div><div class="d">${owing.length} 家没回清</div></div>
       <div class="stat tap" data-goto="receipt" data-goseg="cash:out"><div class="k">我还欠上游</div><div class="v num">${y(T.payable)}</div><div class="d">已付 ${y(T.paidTotal)} / 进货 ${y(T.purchaseTotal)}</div></div>
-      <div class="stat tap" data-goto="company" data-goseg="acct:personal"><div class="k">个人账户</div><div class="v num">${y(T.personalBalance)}</div><div class="d">进 ${y(T.personalIn + T.withdrawNet)} · 付上游 ${y(T.personalPaid)}</div></div>
-      <div class="stat"><div class="k">已扣税</div><div class="v num">${y(T.taxPaid)}</div><div class="d">个人 ${y(T.personalTax)} · 月扣 ${y(T.taxRunTotal)} · 提现 ${y(T.withdrawTax)}</div></div>
+      <div class="stat tap" data-goto="company" data-goseg="acct:personal"><div class="k">个人账户</div><div class="v num">${y(T.personalBalance)}</div><div class="d">进 ${y(T.personalIn + T.withdrawn)} · 付上游 ${y(T.personalPaid)}</div></div>
+      <div class="stat"><div class="k">已扣税</div><div class="v num">${y(T.taxPaid)}</div><div class="d">回个人 ${y(T.personalTax)} · 回公司 ${y(T.companyTax)}</div></div>
       <div class="stat"><div class="k">毛利</div><div class="v num">${y(T.grossProfit)}</div><div class="d">销售 ${y(T.revenue)} − 进价 ${y(T.cogs)}</div></div>
-      <div class="stat"><div class="k">税后利润（估）</div><div class="v num">${y(T.netProfitEst)}</div><div class="d">毛利减掉已扣、待扣的税</div></div>
+      <div class="stat"><div class="k">税后利润（估）</div><div class="v num">${y(T.netProfitEst)}</div><div class="d">毛利减掉已扣的税和没回款部分将扣的税</div></div>
     </div>
     <div class="card">
       <h3>谁还欠我钱</h3>
@@ -301,7 +298,7 @@ function renderCash() {
       const n = (r0.allocations || []).length;
       const sub = r0.account === ACCOUNT.PERSONAL
         ? `核销 ${y(r.grossC)} · 扣税 ${y(r.taxC)}`
-        : `核销 ${y(r.grossC)}${r.unallocated ? ` · <span style="color:var(--warn)">${y(r.unallocated)} 没对上销售</span>` : ''}`;
+        : `扣税 ${y(r.taxC)} · 算你的 ${y(r.mineC)}${r.unallocated ? ` · <span style="color:var(--warn)">${y(r.unallocated)} 没对上销售</span>` : ''}`;
       return { date: r0.date, html: `
         <li class="item" data-edit="receipt" data-id="${r0.id}">
           <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${sub} · ${n > 1 ? `合并 ${n} 笔销售` : n === 1 ? '1 笔销售' : '未核销'}${r0.note ? ' · ' + esc(r0.note) : ''}</div></div>
@@ -362,29 +359,18 @@ function renderAccounts() {
   const segHtml = segCtl('acct', [['company', `公司账户 ${fmt(T.companyBalance)}`], ['personal', `个人账户 ${fmt(T.personalBalance)}`]]);
   let body;
   if (seg.acct === 'company') {
-    const tot = Math.max(1, T.companyBalance);
-    const lots = [...R.lots].reverse();
     body = `
     <div class="card">
-      <div class="muted small">公司账户余额</div>
+      <div class="muted small">你在公司账户的钱（已按规则扣完税）</div>
       <div class="num" style="font-size:28px;font-weight:700">${y(T.companyBalance)}</div>
-      <div class="bar"><i style="width:${(T.taxedBal / tot) * 100}%;background:var(--accent)"></i><i style="width:${(T.untaxedBal / tot) * 100}%;background:var(--warn)"></i></div>
-      <div class="legend num"><span><b style="background:var(--accent)"></b>已扣税 ${y(T.taxedBal)}（可全额提）</span><span><b style="background:var(--warn)"></b>未扣税 ${y(T.untaxedBal)}（待扣 ${y(T.pendingTax)}）</span></div>
       <div class="calc" style="margin:12px 0 10px">
-        <div class="ln"><span>已扣税部分，全提</span><span class="num">${y(T.taxedBal)}</span></div>
-        <div class="ln"><span>未扣税部分，扣完税再提</span><span class="num">${y(T.maxWithdrawNet - T.taxedBal)}</span></div>
-        <div class="ln total"><span>最多能提到手</span><span class="num">${y(T.maxWithdrawNet)}</span></div>
+        <div class="ln"><span>下游回到公司</span><span class="num">+${fmt(T.companyIn)}</span></div>
+        <div class="ln"><span>按规则扣税</span><span class="num">−${fmt(T.companyTax)}</span></div>
+        <div class="ln"><span>从公司付给上游</span><span class="num">−${fmt(T.companyPaid)}</span></div>
+        <div class="ln"><span>提到个人账户</span><span class="num">−${fmt(T.withdrawn)}</span></div>
+        <div class="ln total"><span>可以提出来</span><span class="num">${y(Math.max(0, T.companyBalance))}</span></div>
       </div>
-      <div class="two"><button class="btn" data-act="taxrun">${icon('tax')}月度扣税</button><button class="btn primary" data-act="withdraw">${icon('withdraw')}提现</button></div>
-    </div>
-    <div class="card">
-      <h3>每笔回款的状态 <span class="muted">先进先出</span></h3>
-      ${lots.length ? `<ul class="list">${lots.map((l) => `
-        <li class="item" data-edit="receipt" data-id="${l.receiptId}">
-          <div class="l"><div class="t">${esc(l.customer)} ${l.taxed ? '<span class="pill taxed">已扣税</span>' : '<span class="pill untaxed">未扣税</span>'}</div>
-            <div class="s">${esc(l.date)} 到账 ${y(l.original)} · ${l.taxed ? `交过税 ${y(l.taxOriginal)}` : `还要交税 ${y(l.taxDue)}`}</div></div>
-          <div class="r"><div class="amt num">${y(l.remaining)}</div><div class="s">${l.remaining ? '还在账上' : '已用完'}</div></div>
-        </li>`).join('')}</ul>` : '<div class="empty">还没有回到公司的钱</div>'}
+      <button class="btn primary block" data-act="withdraw">${icon('withdraw')}提现到个人账户</button>
     </div>
     <div class="card"><h3>公司账户流水</h3>${flowList(R.flow)}</div>`;
   } else {
@@ -394,7 +380,7 @@ function renderAccounts() {
       <div class="num" style="font-size:28px;font-weight:700">${y(T.personalBalance)}</div>
       <div class="calc" style="margin:12px 0 0">
         <div class="ln"><span>下游直接回到个人（已扣税）</span><span class="num">+${fmt(T.personalIn)}</span></div>
-        <div class="ln"><span>从公司提出来</span><span class="num">+${fmt(T.withdrawNet)}</span></div>
+        <div class="ln"><span>从公司提出来</span><span class="num">+${fmt(T.withdrawn)}</span></div>
         <div class="ln"><span>从个人付给上游</span><span class="num">−${fmt(T.personalPaid)}</span></div>
         <div class="ln total"><span>结余</span><span class="num">${y(T.personalBalance)}</span></div>
       </div>
@@ -403,7 +389,7 @@ function renderAccounts() {
     <div class="card"><h3>个人账户流水</h3>${flowList(R.personalFlow)}</div>`;
   }
   $('#page-company').innerHTML = `
-    <header class="hdr"><div><h1>账户</h1><p class="sub">${seg.acct === 'company' ? '回到公司的钱先不扣税，每月统一扣；提现时没扣过的要先扣' : '回到个人的钱已经扣过税，提现进来的也是到手的钱'}</p></div></header>
+    <header class="hdr"><div><h1>账户</h1><p class="sub">${seg.acct === 'company' ? '回到公司的钱按规则扣完税算你的，公司什么时候交税不用管' : '回到个人的钱已经扣过税，提现进来的也是到手的钱'}</p></div></header>
     ${reminders()}${segHtml}${body}`;
 }
 
@@ -420,7 +406,7 @@ function renderSettings() {
         <div class="f"><label>差价税率（%）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="set-mar" value="${+(s.marginRate * 100).toFixed(4)}"></div>
       </div>
       <div class="calc" id="set-eg"></div>
-      <p class="small muted" style="margin:0">改了税率，以前所有回款、扣税、提现都会按新税率重算。如果中途税率变过，先导出备份再改。</p>
+      <p class="small muted" style="margin:0">改了税率，以前所有回款的扣税都会按新税率重算。如果中途税率变过，先导出备份再改。</p>
     </div>
     <div class="card">
       <h3>备份</h3>
@@ -440,10 +426,10 @@ function renderSettings() {
       <p><b>回款 = 核销应收。</b>下游一次打款可以核销好几笔销售（合并回款），默认按最早的先核销，也可以手动分。</p>
       <p><b>扣多少税跟着差价走：</b>每笔销售记一个进价。进价 1、卖 1.5、200 件，全部回款要扣 300×1% + 100×13% = 16。合并回款时，核销到哪笔销售就按哪笔的差价算。</p>
       <p><b>回个人账户：</b>到账就是扣完税的钱。上面那笔回到个人，到账 284，系统反推核销了 300 应收、扣税 16。</p>
-      <p><b>回公司账户：</b>全额进账，标「未扣税」。每月做一次「月度扣税」，把上月及以前的未税余额扣税，标「已扣税」。</p>
-      <p><b>付上游 = 核销应付。</b>每笔进货就是欠上游的钱；打钱给上游时记一笔付款，可以一次付好几笔进货，从个人账户或公司账户打出都行。从公司账户付货款，税照扣，不会因为钱花出去就少交。</p>
-      <p><b>从公司提现：</b>先提已扣税的钱，一分不少；不够再动未扣税的钱，这部分边提边扣税。提走的部分月底就不会再扣一次。</p>
-      <p><b>删改任何一笔都安全：</b>余额、扣税、提现都是按时间顺序重新算出来的。</p>
+      <p><b>回公司账户：</b>到账多少记多少，按同样的规则扣掉税，剩下的就是你在公司的钱。上面那笔回到公司，到账 300，算你的 284。公司什么时候交税不影响这个数。</p>
+      <p><b>付上游 = 核销应付。</b>每笔进货就是欠上游的钱；打钱给上游时记一笔付款，可以一次付好几笔进货，从个人账户或公司账户打出都行。从公司付，就从你在公司的钱里扣。</p>
+      <p><b>从公司提现：</b>你在公司的钱已经扣过税，提多少到手多少，最多提完为止。</p>
+      <p><b>删改任何一笔都安全：</b>余额、扣税都是按时间顺序重新算出来的。</p>
     </div>`;
 
   const example = () => {
@@ -532,7 +518,6 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (a === 'sale') return saleForm();
     if (a === 'receipt') return receiptForm(null, act.dataset.customer);
     if (a === 'payment') return paymentForm(null, act.dataset.supplier);
-    if (a === 'taxrun') return taxRunForm();
     if (a === 'withdraw') return withdrawForm();
     if (a === 'exit-demo') return exitDemo();
   }
@@ -543,7 +528,6 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (edit === 'purchase') return purchaseForm(state.purchases.find((x) => x.id === id));
     if (edit === 'receipt') return receiptForm(state.receipts.find((x) => x.id === id));
     if (edit === 'payment') return paymentForm((state.payments || []).find((x) => x.id === id));
-    if (edit === 'taxrun') return taxRunForm(state.taxRuns.find((x) => x.id === id));
     if (edit === 'withdraw') return withdrawForm(state.withdrawals.find((x) => x.id === id));
   }
 });
@@ -681,7 +665,7 @@ function receiptForm(rec, presetCustomer) {
     </div>
     <div class="f"><label>回到哪个账户</label>
       <div class="acct">
-        <button type="button" data-v="company"><b>公司账户</b><small>全额到账，先不扣税<br>月底统一扣</small></button>
+        <button type="button" data-v="company"><b>公司账户</b><small>全额到账<br>扣完税的算你的</small></button>
         <button type="button" data-v="personal"><b>个人账户</b><small>到账的已经是<br>扣完增值税的钱</small></button>
       </div></div>
     <div class="f"><label>实际到账金额（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-amt" value="${rec?.amount ?? ''}" placeholder="银行里看到的数"></div>
@@ -728,8 +712,9 @@ function receiptForm(rec, presetCustomer) {
           <div class="ln total"><span>其中被扣的税</span><span class="num">${y(Math.max(0, tax))}</span></div>`;
         if (gross && Math.abs(gross - ruleTax - amt) > 100) html += `<div class="ln warn"><span>按规则应扣 ${y(ruleTax)}、到账 ${y(gross - ruleTax)}，和实际差 ${y(Math.abs(gross - ruleTax - amt))}</span></div>`;
       } else {
-        html += `<div class="ln total"><span>公司账户 +${fmt(amt)}</span><span class="pill untaxed">未扣税</span></div>
-          <div class="ln"><span>以后要扣的税（月度扣税或提现时）</span><span class="num">${y(ruleTax)}</span></div>`;
+        html += `<div class="ln"><span>到账</span><span class="num">${y(amt)}</span></div>
+          <div class="ln"><span>按规则扣税</span><span class="num">−${fmt(ruleTax)}</span></div>
+          <div class="ln total"><span>算你在公司的钱</span><span class="num">${y(amt - ruleTax)}</span></div>`;
         if (gross !== amt && amt) html += `<div class="ln warn"><span>${gross < amt ? `有 ${y(amt - gross)} 没对上销售（多付 / 预付？）` : `核销比到账多 ${y(gross - amt)}`}</span></div>`;
       }
       if (over) html += '<div class="ln bad"><span>有一笔核销超过了它的欠款</span></div>';
@@ -789,7 +774,7 @@ function paymentForm(rec, presetSupplier) {
     <div class="f"><label>从哪个账户打出</label>
       <div class="acct">
         <button type="button" data-v="personal"><b>个人账户</b><small>从自己卡里付</small></button>
-        <button type="button" data-v="company"><b>公司账户</b><small>从公司账上付<br>税照扣，不会少</small></button>
+        <button type="button" data-v="company"><b>公司账户</b><small>从公司账上付<br>扣你在公司的钱</small></button>
       </div></div>
     <div class="f"><label>打出金额（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-amt" value="${rec?.amount ?? ''}"></div>
     <div class="lbl" style="display:flex;justify-content:space-between;align-items:center">付的是哪几笔进货 <button class="btn sm" type="button" id="f-auto">按金额自动分</button></div>
@@ -835,9 +820,9 @@ function paymentForm(rec, presetSupplier) {
       if (sum !== amt && amt) html += `<div class="ln warn"><span>${sum < amt ? `有 ${y(amt - sum)} 没对上进货（预付？）` : `核销比打出的钱多 ${y(sum - amt)}`}</span></div>`;
       if (account === ACCOUNT.COMPANY && amt) {
         const p = previewPayment(others, { date: $('#f-date', root).value || today(), supplier, account, amount: amount(), allocations: [] });
-        if (p.shortfall > 0) html += `<div class="ln bad"><span>公司账户当天只有 ${y(p.taken)}，付不出这么多</span></div>`;
-        else if (p.reserveUsed > 0) html += `<div class="ln warn"><span>会用掉 ${y(p.reserveUsed)} 留着交税的钱，月底扣税时公司账上可能不够</span></div>`;
-        else html += '<div class="ln"><span>公司账户付得起，不影响月底交税</span></div>';
+        html += `<div class="ln"><span>付之前你在公司有</span><span class="num">${y(p.before)}</span></div>
+          <div class="ln total"><span>付完还剩</span><span class="num">${y(p.before - p.amountC)}</span></div>`;
+        if (p.over > 0) html += `<div class="ln warn"><span>比你在公司的钱多 ${y(p.over)}，相当于先占用了公司的钱</span></div>`;
       }
       if (over) html += '<div class="ln bad"><span>有一笔付款超过了它的欠款</span></div>';
       $('#f-calc', root).innerHTML = html;
@@ -865,10 +850,6 @@ function paymentForm(rec, presetSupplier) {
       const r = { id: rec?.id || uid(), date: $('#f-date', root).value, supplier, account, amount: amount(), allocations, note: $('#f-note', root).value.trim() };
       if (!r.date || !r.supplier || !(r.amount > 0)) return toast('日期、打给哪家、金额要填');
       if (over) return toast('有一笔付款超过了它的欠款');
-      if (r.account === ACCOUNT.COMPANY) {
-        const p = previewPayment(others, r);
-        if (p.shortfall > 0) return toast(`公司账户当天只有 ${y(p.taken)}，付不出这么多`);
-      }
       upsert(state.payments, r); save(); closeSheet();
       toast(r.allocations.length > 1 ? `已记付款，合并付了 ${r.allocations.length} 笔进货` : '已记付款');
     };
@@ -876,82 +857,39 @@ function paymentForm(rec, presetSupplier) {
   });
 }
 
-// ---------- 月度扣税 ----------
-function taxRunForm(rec) {
-  const last = prevMonth(today());
-  const ym = rec ? rec.cutoff.slice(0, 7) : last;
-  openSheet(rec ? '月度扣税记录' : '月度扣税', `
-    <p class="small muted" style="margin-top:0">把公司账户里截止到这个月底、还没扣过税的余额扣掉增值税。扣完这些钱就是「已扣税」，以后可以全额提。</p>
-    <div class="two">
-      <div class="f"><label>扣哪个月及以前的</label><input class="inp" type="month" id="f-ym" value="${esc(ym)}"></div>
-      <div class="f"><label>扣款日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
-    </div>
-    <div class="calc" id="f-calc"></div>
-    <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
-    <button class="btn primary block" id="f-save">${rec ? '保存' : '确认扣税'}</button>${delBtn(rec)}`, (root) => {
-    const others = { ...state, taxRuns: state.taxRuns.filter((t) => t.id !== rec?.id) };
-    const calc = () => {
-      const cutoff = monthEnd($('#f-ym', root).value || last);
-      const date = $('#f-date', root).value || today();
-      const p = previewTaxRun(others, cutoff, date);
-      $('#f-calc', root).innerHTML = p.details.length ? `
-        ${p.details.map((d) => { const rc = state.receipts.find((x) => x.id === d.receiptId); return `<div class="ln"><span>${esc(rc?.date)} ${esc(rc?.customer)} 未税余额 ${y(d.base)}</span><span class="num">−${fmt(d.tax)}</span></div>`; }).join('')}
-        <div class="ln total"><span>${cutoff} 前共 ${p.details.length} 笔，扣税</span><span class="num">${y(p.tax)}</span></div>`
-        : `<div class="ln"><span>${cutoff} 前没有未扣税的余额</span></div>`;
-      if (date < cutoff) $('#f-calc', root).innerHTML += '<div class="ln warn"><span>扣款日期早于月底，月底前那几天到的钱不会算进来</span></div>';
-    };
-    root.addEventListener('input', calc); calc();
-    $('#f-save', root).onclick = () => {
-      const r = { id: rec?.id || uid(), date: $('#f-date', root).value, cutoff: monthEnd($('#f-ym', root).value), note: $('#f-note', root).value.trim() };
-      if (!r.date || !$('#f-ym', root).value) return toast('月份和日期要填');
-      if (!rec && !previewTaxRun(others, r.cutoff, r.date).details.length) return toast('没有要扣税的余额');
-      upsert(state.taxRuns, r); save(); closeSheet(); toast('已扣税');
-    };
-    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这次扣税？对应的钱会变回「未扣税」。', '删除', true)) { remove(state.taxRuns, rec.id); save(); closeSheet(); } };
-  });
-}
-
 // ---------- 提现 ----------
 function withdrawForm(rec) {
   const others = { ...state, withdrawals: state.withdrawals.filter((w) => w.id !== rec?.id) };
   openSheet(rec ? '提现记录' : '从公司提现', `
+    <p class="small muted" style="margin-top:0">你在公司的钱已经扣过税，提多少到手多少。</p>
     <div class="two">
       <div class="f"><label>日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
-      <div class="f"><label>想拿到手（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-net" value="${rec?.net ?? ''}"></div>
+      <div class="f"><label>提多少（元）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-net" value="${rec?.net ?? ''}"></div>
     </div>
-    <div class="btn-row" style="margin:-4px 0 12px"><button class="btn sm" type="button" id="f-all">全部提出</button><button class="btn sm" type="button" id="f-taxed">只提已扣税的</button></div>
+    <div class="btn-row" style="margin:-4px 0 12px"><button class="btn sm" type="button" id="f-all">全部提出</button></div>
     <div class="calc" id="f-calc"></div>
     <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}"></div>
     <button class="btn primary block" id="f-save">${rec ? '保存' : '确认提现'}</button>${delBtn(rec)}`, (root) => {
-    const at = () => compute({ ...others, receipts: others.receipts.filter((x) => x.date <= ($('#f-date', root).value || today())), taxRuns: others.taxRuns.filter((x) => x.date <= ($('#f-date', root).value || today())), withdrawals: others.withdrawals.filter((x) => x.date <= ($('#f-date', root).value || today())) }).totals;
+    const date = () => $('#f-date', root).value || today();
+    const avail = () => Math.max(0, companyBalanceAt(state, date(), { withdrawal: rec?.id }));
     const calc = () => {
-      const T = at();
-      const net = num(root, '#f-net') || 0;
-      let html = `<div class="ln"><span>当天可提：已扣税 ${y(T.taxedBal)} + 未扣税 ${y(T.untaxedBal)}</span></div>
-        <div class="ln"><span>最多到手</span><span class="num">${y(T.maxWithdrawNet)}</span></div>`;
-      if (net > 0) {
-        const w = previewWithdrawal(others, net, $('#f-date', root).value || today());
-        const fromTaxed = w.parts.filter((p) => p.taxed).reduce((s, p) => s + p.gross, 0);
-        const fromUntaxed = w.parts.filter((p) => !p.taxed).reduce((s, p) => s + p.gross, 0);
-        html += `<div class="ln total"><span>从公司划出</span><span class="num">${y(w.gross)}</span></div>
-          <div class="ln"><span>· 已扣税的钱，直接提</span><span class="num">${y(fromTaxed)}</span></div>
-          <div class="ln"><span>· 未扣税的钱，要先扣税</span><span class="num">${y(fromUntaxed)}</span></div>
-          <div class="ln"><span>本次扣增值税</span><span class="num">${y(w.tax)}</span></div>
-          <div class="ln total"><span>到手</span><span class="num">${y(w.net)}</span></div>`;
-        if (w.shortfall > 0) html += `<div class="ln bad"><span>余额不够，还差 ${y(w.shortfall)}</span></div>`;
+      const have = avail();
+      const amt = toCents(num(root, '#f-net') || 0);
+      let html = `<div class="ln"><span>${date()} 你在公司有</span><span class="num">${y(have)}</span></div>`;
+      if (amt) {
+        html += `<div class="ln total"><span>提完还剩</span><span class="num">${y(have - amt)}</span></div>`;
+        if (amt > have) html += `<div class="ln bad"><span>超出了 ${y(amt - have)}，最多提 ${y(have)}</span></div>`;
       }
       $('#f-calc', root).innerHTML = html;
     };
     root.addEventListener('input', calc); calc();
-    $('#f-all', root).onclick = () => { $('#f-net', root).value = toYuan(at().maxWithdrawNet); calc(); };
-    $('#f-taxed', root).onclick = () => { $('#f-net', root).value = toYuan(at().taxedBal); calc(); };
+    $('#f-all', root).onclick = () => { $('#f-net', root).value = toYuan(avail()); calc(); };
     $('#f-save', root).onclick = () => {
       const r = { id: rec?.id || uid(), date: $('#f-date', root).value, net: num(root, '#f-net'), note: $('#f-note', root).value.trim() };
       if (!r.date || !(r.net > 0)) return toast('日期和金额要填');
       const w = previewWithdrawal(others, r.net, r.date);
-      if (w.shortfall > 0) return toast(`余额不够，最多能提到手 ${y(w.net)}`);
-      upsert(state.withdrawals, r); save(); closeSheet();
-      toast(w.tax ? `已提现，扣税 ${y(w.tax)}` : '已提现');
+      if (w.shortfall > 0) return toast(`超出了，那天最多提 ${y(Math.max(0, w.before))}`);
+      upsert(state.withdrawals, r); save(); closeSheet(); toast('已提现');
     };
     if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔提现？', '删除', true)) { remove(state.withdrawals, rec.id); save(); closeSheet(); } };
   });
