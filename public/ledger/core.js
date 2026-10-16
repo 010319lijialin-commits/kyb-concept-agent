@@ -502,7 +502,7 @@ export function compute(state) {
     x.nextBatch = next ? { purchaseId: next.purchase.id, date: next.purchase.date, unit: next.unit, remaining: next.remaining } : null;
     x.profit = x.outRevenue - x.cogs;
     cogs += x.cogs;
-    if (x.stock < -EPS) issues.push(`「${x.name}」卖出数量比进货多 ${+(-x.stock).toFixed(3)}，少录了进货？`);
+    if (x.stock < -EPS && x.inQty > 0) issues.push(`「${x.name}」卖出数量比进货多 ${+(-x.stock).toFixed(3)}，少录了进货？`);
   }
 
   // ---- 按时间重放两个账户 ----
