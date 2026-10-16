@@ -75,18 +75,18 @@ test('合并回款核销差价不同的两笔销售：税按各自差价算', ()
 
 // ---------- 进价自动算 ----------
 
-test('进价自动按卖出那天之前进的货算，之后的进货不影响已卖的', () => {
+test('之后再进货不影响已卖的；下一笔先进先出从新批次出', () => {
   const s = single();
   // 卖出之后又进了一批更贵的：已卖的那批扣税不变
   s.purchases.push({ id: 'p2', date: '2026-09-20', supplier: '上游A', product: '甲', qty: 200, price: 1.2 });
   let r = compute(s);
   assert.equal(r.salesById.get('s1').unitCost, 1);
   assert.equal(y(r.salesById.get('s1').taxFull), 16);
-  // 之后再卖的，按两批平均 1.1 算
+  // 第一批已经卖光，下一笔从 1.2 那批出
   s.sales.push({ id: 's2', date: '2026-09-21', customer: '下游C', product: '甲', qty: 100, price: 1.5 });
   r = compute(s);
-  assert.equal(Math.round(r.salesById.get('s2').unitCost * 100) / 100, 1.1);
-  assert.equal(r.salesById.get('s2').costBasis, 'before');
+  assert.equal(r.salesById.get('s2').unitCost, 1.2);
+  assert.equal(r.salesById.get('s2').costBasis, 'lots');
 });
 
 test('改了进货价，用到它的销售跟着重算', () => {
@@ -95,12 +95,12 @@ test('改了进货价，用到它的销售跟着重算', () => {
   assert.equal(y(compute(s).salesById.get('s1').taxFull), 21.2);
 });
 
-test('卖出之前没进货记录：用全部进货的平均价；一笔进货都没有就提醒', () => {
+test('进货日期记在卖出之后也照样出货；一笔进货都没有就提醒', () => {
   const s = single();
   s.purchases[0].date = '2026-09-05'; // 进货日期记在卖出之后
   let r = compute(s);
   assert.equal(r.salesById.get('s1').unitCost, 1);
-  assert.equal(r.salesById.get('s1').costBasis, 'all');
+  assert.equal(r.salesById.get('s1').costBasis, 'lots');
   s.purchases = [];
   r = compute(s);
   assert.equal(r.salesById.get('s1').costBasis, 'none');
@@ -263,13 +263,13 @@ test('同一个药不同厂家：进价、库存按厂家分开算', () => {
   assert.deepEqual(stock, { '甲（厂家A）': 50, '甲（厂家B）': 50 });
 });
 
-test('老销售没记厂家：这个药只从一家进过就认那家，多家就按全部厂家平均', () => {
+test('老销售没记厂家：这个药只从一家进过就认那家，多家就按进货先后出', () => {
   const s = single();
   assert.equal(supplierResolver(s)(s.sales[0]), '上游A');
   assert.equal(compute(s).products[0].name, '甲（上游A）');
   const t = twoMakers();
   t.sales.push({ id: 'old', date: '2026-09-02', product: '甲', customer: '下游C', qty: 10, price: 1.5 });
-  assert.equal(Math.round(compute(t).salesById.get('old').unitCost * 100) / 100, 1.1);
+  assert.equal(compute(t).salesById.get('old').unitCost, 1);
 });
 
 test('价目表：每个厂家的每个药一个售价，可改可删', () => {
@@ -284,4 +284,69 @@ test('价目表：每个厂家的每个药一个售价，可改可删', () => {
   assert.equal(s.prices.length, 2);
   removeListPrice(s, '厂家B', '甲');
   assert.equal(listPrice(s, '厂家B', '甲'), null);
+});
+
+// ---------- 按批次出货 ----------
+import { fifoLots, openBatchesFor } from '../public/ledger/core.js';
+
+function twoBatches() {
+  const s = emptyState();
+  s.purchases.push({ id: 'b1', date: '2026-09-01', supplier: '厂家A', product: '甲', qty: 100, price: 1 });
+  s.purchases.push({ id: 'b2', date: '2026-09-05', supplier: '厂家A', product: '甲', qty: 100, price: 1.2 });
+  return s;
+}
+
+test('先进先出：150 件 = 第一批 100 + 第二批 50，按两批实际进价算税', () => {
+  const s = twoBatches();
+  const lots = fifoLots(s, '厂家A', '甲', 150, '2026-09-10');
+  assert.deepEqual(lots, [{ purchaseId: 'b1', qty: 100 }, { purchaseId: 'b2', qty: 50 }]);
+  s.sales.push({ id: 's', date: '2026-09-10', supplier: '厂家A', product: '甲', customer: '下游C', qty: 150, price: 1.5, lots });
+  const r = compute(s);
+  // 成本 100 + 60 = 160；差价 225 − 160 = 65；税 2.25 + 8.45 = 10.70
+  assert.equal(y(r.salesById.get('s').cogs), 160);
+  assert.equal(y(r.salesById.get('s').taxFull), 10.7);
+  assert.equal(r.purchasesById.get('b1').remaining, 0);
+  assert.equal(r.purchasesById.get('b2').remaining, 50);
+});
+
+test('自己挑批次：第一批 50 + 第二批 100，税跟着变', () => {
+  const s = twoBatches();
+  s.sales.push({ id: 's', date: '2026-09-10', supplier: '厂家A', product: '甲', customer: '下游C', qty: 150, price: 1.5, lots: [{ purchaseId: 'b1', qty: 50 }, { purchaseId: 'b2', qty: 100 }] });
+  const r = compute(s);
+  // 成本 50 + 120 = 170；差价 55；税 2.25 + 7.15 = 9.40
+  assert.equal(y(r.salesById.get('s').cogs), 170);
+  assert.equal(y(r.salesById.get('s').taxFull), 9.4);
+  // 下一笔默认先进先出：先用第一批剩的 50
+  assert.deepEqual(fifoLots(s, '厂家A', '甲', 60, '2026-09-11'), [{ purchaseId: 'b1', qty: 50 }]);
+  // 回款按这笔的税负扣：回 75（一半）扣 4.7
+  s.receipts.push({ id: 'r', date: '2026-09-12', customer: '下游C', account: 'company', amount: 112.5, allocations: [{ saleId: 's', amount: 112.5 }] });
+  assert.equal(y(compute(s).totals.companyTax), 4.7);
+});
+
+test('改旧销售时，它自己用掉的批次不算占用', () => {
+  const s = twoBatches();
+  s.sales.push({ id: 's', date: '2026-09-10', supplier: '厂家A', product: '甲', customer: '下游C', qty: 100, price: 1.5, lots: [{ purchaseId: 'b1', qty: 100 }] });
+  assert.deepEqual(openBatchesFor(s, '厂家A', '甲').map((b) => [b.purchase.id, b.remaining]), [['b2', 100]]);
+  assert.deepEqual(openBatchesFor(s, '厂家A', '甲', 's').map((b) => [b.purchase.id, b.remaining]), [['b1', 100], ['b2', 100]]);
+});
+
+test('老销售没记批次：扣掉记了批次的，再先进先出', () => {
+  const s = twoBatches();
+  s.sales.push({ id: 'new', date: '2026-09-10', supplier: '厂家A', product: '甲', customer: '下游C', qty: 80, price: 1.5, lots: [{ purchaseId: 'b1', qty: 80 }] });
+  s.sales.push({ id: 'old', date: '2026-09-03', supplier: '厂家A', product: '甲', customer: '下游C', qty: 50, price: 1.5 });
+  const r = compute(s);
+  // 第一批只剩 20 → old 用 20 件 × 1 + 30 件 × 1.2 = 56
+  assert.equal(y(r.salesById.get('old').cogs), 56);
+});
+
+test('卖得比库存多：多出的按平均进价算并提醒；某批出得比进得多也提醒', () => {
+  const s = twoBatches();
+  s.sales.push({ id: 's', date: '2026-09-10', supplier: '厂家A', product: '甲', customer: '下游C', qty: 250, price: 1.5 });
+  let r = compute(s);
+  assert.equal(y(r.salesById.get('s').cogs), 100 + 120 + 50 * 1.1);
+  assert.ok(r.issues.some((t) => t.includes('比库存多 50 件')));
+  const t = twoBatches();
+  t.sales.push({ id: 's', date: '2026-09-10', supplier: '厂家A', product: '甲', customer: '下游C', qty: 120, price: 1.5, lots: [{ purchaseId: 'b1', qty: 120 }] });
+  r = compute(t);
+  assert.ok(r.issues.some((x) => x.includes('进了 100 件，记的卖出有 120 件')));
 });

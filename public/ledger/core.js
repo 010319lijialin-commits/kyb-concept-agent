@@ -18,7 +18,7 @@ export function emptyState() {
     version: 4,
     settings: { ...DEFAULT_SETTINGS },
     purchases: [],   // { id, date, supplier(厂家), product, qty, price, note }
-    sales: [],       // { id, date, supplier(厂家), product, customer, qty, price, note }  进价自动算，见 costLookup
+    sales: [],       // { id, date, supplier(厂家), product, customer, qty, price, lots:[{purchaseId, qty}], note }  从哪几批出货，见 batchCosting
     prices: [],      // 价目表 { supplier, product, price }：每个厂家的每个药一个售价
     receipts: [],    // { id, date, customer, account, amount(到账), allocations:[{saleId, amount(核销)}], note }
     payments: [],    // { id, date, supplier, account, amount(打出去的钱), allocations:[{purchaseId, amount}], note }
@@ -188,15 +188,124 @@ export function saleTaxBreakdown(sale, cost, settings) {
 
 const taxOn = (cents, rate) => Math.round(cents * rate);
 
-// saleId → { cost, basis, rate, supplier }
-export function saleRates(state) {
-  const lookup = costLookup(state);
+// 按销售额和成本（都是分）算整笔的税
+export function taxFromTotals(revenueC, cogsC, settings) {
+  const S = normSettings(settings);
+  const margin = Math.max(0, revenueC - cogsC);
+  const revenueTax = Math.round(revenueC * S.revenueRate);
+  const marginTax = Math.round(margin * S.marginRate);
+  return { total: revenueC, margin, revenueTax, marginTax, tax: revenueTax + marginTax };
+}
+
+// ---------- 按批次出货 ----------
+// 同样的药每批进价不同，增值税要按这次实际出的是哪几批、每批多少件来算。
+// 每笔销售记 lots: [{ purchaseId, qty }]（默认先进先出，用户可以改）。
+// - 先扣掉所有记了批次的销售；老销售没记批次的，再用剩下的库存按先进先出分给它们（先用卖出那天之前进的货）
+// - 库存不够、或者用到的批次被删了：差的那几件按平均进价算，并提醒
+const qtyOf = (v) => Number(v) || 0;
+const EPS = 1e-9;
+
+export function batchCosting(state) {
   const supplierOf = supplierResolver(state);
+  const lookup = costLookup(state);
+  const batches = new Map(state.purchases.map((p) => [p.id, {
+    purchase: p, key: productKey(p.supplier, p.product), qty: qtyOf(p.qty), remaining: qtyOf(p.qty), unit: toCents(p.price),
+  }]));
+  const order = [...batches.values()].sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id));
+  const out = new Map();
+  const warn = [];
+
+  // 1) 记了批次的销售
+  for (const s of state.sales) {
+    const rec = { supplier: supplierOf(s), lots: [], cogs: 0, missing: 0, chosen: Boolean(s.lots && s.lots.length) };
+    out.set(s.id, rec);
+    if (!rec.chosen) { rec.need = qtyOf(s.qty); continue; }
+    let sum = 0;
+    for (const l of s.lots) {
+      const q = qtyOf(l.qty);
+      if (q <= 0) continue;
+      sum += q;
+      const b = batches.get(l.purchaseId);
+      if (!b) { rec.missing += q; warn.push(`${s.date} 卖给 ${s.customer} 的${s.product}，用到的进货批次已经删了，那 ${q} 件先按平均进价算`); continue; }
+      b.remaining -= q;
+      rec.lots.push({ purchaseId: l.purchaseId, qty: q, unit: b.unit });
+      rec.cogs += Math.round(q * b.unit);
+    }
+    rec.need = Math.max(0, qtyOf(s.qty) - sum); // 批次没分够的件数，下面先进先出补上
+  }
+
+  // 2) 没记批次的、没分够的：按日期先进先出
+  const todo = state.sales.filter((s) => out.get(s.id).need > EPS).sort((a, b) => cmp(a.date, b.date) || cmp(a.id, b.id));
+  for (const s of todo) {
+    const rec = out.get(s.id);
+    const match = (b) => b.remaining > EPS && (rec.supplier ? b.key === productKey(rec.supplier, s.product) : b.purchase.product === s.product);
+    for (const pass of [(b) => b.purchase.date <= s.date, () => true]) {
+      for (const b of order) {
+        if (rec.need <= EPS) break;
+        if (!match(b) || !pass(b)) continue;
+        const q = Math.min(rec.need, b.remaining);
+        b.remaining -= q;
+        rec.need -= q;
+        rec.lots.push({ purchaseId: b.purchase.id, qty: q, unit: b.unit, auto: true });
+        rec.cogs += Math.round(q * b.unit);
+      }
+    }
+    rec.missing += Math.max(0, rec.need);
+    delete rec.need;
+  }
+
+  // 3) 库存不够的件数：按平均进价算
+  for (const s of state.sales) {
+    const rec = out.get(s.id);
+    delete rec.need;
+    if (rec.missing > EPS) {
+      const { cost, basis } = lookup(s.product, s.date, rec.supplier);
+      rec.cogs += Math.round(rec.missing * cost * 100);
+      rec.basis = basis;
+    } else rec.basis = 'lots';
+  }
+  for (const b of batches.values())
+    if (b.remaining < -EPS) warn.push(`${b.purchase.date} 进的那批${b.purchase.product}（${b.purchase.supplier}）进了 ${b.qty} 件，记的卖出有 ${b.qty - b.remaining} 件`);
+  return { sales: out, batches, warn };
+}
+
+// 某个厂家某个药还有货的批次（去掉 excludeSaleId 这笔自己用掉的），按进货日期排；keepIds 里的没货了也留着
+export function openBatchesFor(state, supplier, product, excludeSaleId, keepIds = []) {
+  const { batches } = batchCosting({ ...state, sales: state.sales.filter((x) => x.id !== excludeSaleId) });
+  return [...batches.values()]
+    .filter((b) => b.purchase.supplier === supplier && b.purchase.product === product && (b.remaining > EPS || keepIds.includes(b.purchase.id)))
+    .sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id))
+    .map((b) => ({ purchase: b.purchase, remaining: Math.max(0, b.remaining), unit: b.unit }));
+}
+
+// 先进先出：qty 件从哪几批出（先用卖出那天之前进的货）
+export function fifoLots(state, supplier, product, qty, date, excludeSaleId) {
+  const open = openBatchesFor(state, supplier, product, excludeSaleId);
+  let need = qtyOf(qty);
+  const out = [];
+  for (const pass of [(b) => b.purchase.date <= date, (b) => b.purchase.date > date]) {
+    for (const b of open) {
+      if (need <= EPS) break;
+      if (!pass(b) || b.remaining <= EPS) continue;
+      const q = Math.min(need, b.remaining);
+      out.push({ purchaseId: b.purchase.id, qty: +q.toFixed(6) });
+      need -= q;
+    }
+  }
+  return out;
+}
+
+// saleId → { cost(元/件), cogs(分), basis, rate, supplier, lots }
+export function saleRates(state) {
+  const { sales } = batchCosting(state);
+  const S = normSettings(state.settings);
   const m = new Map();
   for (const s of state.sales) {
-    const supplier = supplierOf(s);
-    const { cost, basis } = lookup(s.product, s.date, supplier);
-    m.set(s.id, { cost, basis, supplier, rate: saleTaxRate(s.price, cost, state.settings) });
+    const c = sales.get(s.id);
+    const revenue = toCents(saleAmount(s));
+    const qty = qtyOf(s.qty);
+    const rate = revenue > 0 ? S.revenueRate + S.marginRate * Math.max(0, revenue - c.cogs) / revenue : S.revenueRate;
+    m.set(s.id, { cost: qty ? c.cogs / qty / 100 : 0, cogs: c.cogs, basis: c.basis, missing: c.missing, supplier: c.supplier, lots: c.lots, rate });
   }
   return m;
 }
@@ -313,6 +422,8 @@ const TYPE_ORDER = { receipt: 0, payment: 1, withdrawal: 2 };
 export function compute(state) {
   const settings = normSettings(state.settings);
   const issues = [];
+  const costing = batchCosting(state);
+  issues.push(...costing.warn);
   const rates = saleRates(state);
   const payments = state.payments || [];
   const withdrawalsIn = state.withdrawals || [];
@@ -322,13 +433,14 @@ export function compute(state) {
   const sales = state.sales.map((s) => {
     const total = toCents(saleAmount(s));
     const done = settled.get(s.id) || 0;
-    const { cost, basis, rate, supplier } = rates.get(s.id);
-    const tb = saleTaxBreakdown(s, cost, settings);
+    const { cost, cogs: saleCogs, basis, missing, rate, supplier, lots } = rates.get(s.id);
+    const tb = taxFromTotals(total, saleCogs, settings);
     if (done > total) issues.push(`销售「${s.customer} ${s.product}」核销金额超过了销售额`);
     if (basis === 'none') issues.push(`还没记过${supplier ? ` ${supplier} 的` : ''}「${s.product}」的进货，${s.date} 卖给 ${s.customer} 的这批差价税先按全额算；补记进货后会自动重算`);
+    else if (missing > EPS && !costing.warn.some((w) => w.includes(s.date) && w.includes(s.customer))) issues.push(`${s.date} 卖给 ${s.customer} 的${s.product}比库存多 ${+missing.toFixed(3)} 件，多出的先按平均进价算；补记进货后会自动重算`);
     return {
       ...s, total, settled: done, outstanding: Math.max(0, total - done),
-      supplier, unitCost: cost, costBasis: basis, cogs: Math.round(toCents(cost) * Number(s.qty || 0)), rate, taxFull: tb.tax, taxBreakdown: tb,
+      supplier, unitCost: cost, costBasis: basis, lots, cogs: saleCogs, rate, taxFull: tb.tax, taxBreakdown: tb,
     };
   });
   const salesById = new Map(sales.map((s) => [s.id, s]));
@@ -342,7 +454,8 @@ export function compute(state) {
     const total = toCents(purchaseAmount(p));
     const done = paid.get(p.id) || 0;
     if (done > total) issues.push(`进货「${p.supplier} ${p.product}」付款超过了进货额`);
-    return { ...p, total, paid: done, outstanding: Math.max(0, total - done) };
+    const b = costing.batches.get(p.id);
+    return { ...p, total, paid: done, outstanding: Math.max(0, total - done), sold: b.qty - b.remaining, remaining: b.remaining };
   });
   const purchasesById = new Map(purchases.map((p) => [p.id, p]));
   for (const pay of payments)
@@ -383,9 +496,13 @@ export function compute(state) {
   for (const x of products.values()) {
     x.avgCost = x.inQty ? x.inCost / x.inQty : 0; // 分/件
     x.stock = x.inQty - x.outQty;
+    // 下一笔出货先进先出会用到的那批：价目表按它算每件差价和扣税
+    const next = [...costing.batches.values()].filter((b) => b.key === x.key && b.remaining > EPS)
+      .sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id))[0];
+    x.nextBatch = next ? { purchaseId: next.purchase.id, date: next.purchase.date, unit: next.unit, remaining: next.remaining } : null;
     x.profit = x.outRevenue - x.cogs;
     cogs += x.cogs;
-    if (x.stock < 0) issues.push(`「${x.name}」卖出数量比进货多 ${-x.stock}，少录了进货？`);
+    if (x.stock < -EPS) issues.push(`「${x.name}」卖出数量比进货多 ${+(-x.stock).toFixed(3)}，少录了进货？`);
   }
 
   // ---- 按时间重放两个账户 ----
