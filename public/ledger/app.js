@@ -1,10 +1,11 @@
 import {
   ACCOUNT, emptyState, compute, autoAllocate, autoAllocateNet, openSalesFor, saleRates,
   openPurchasesFor, autoAllocatePayment, paymentAllocated, previewPayment,
-  saleTaxBreakdown, taxFromTotals, openBatchesFor, normSettings, pct,
+  saleTaxBreakdown, taxFromTotals, openBatchesIndex, normSettings, pct,
   previewWithdrawal, companyBalanceAt, receiptGross,
-  saleAmount, purchaseAmount, toCents, toYuan, fmt, uid, prevMonth,
-  seedLists, addToList, lastUsed, listPrice, setListPrice, removeListPrice,
+  saleAmount, purchaseAmount, toCents, toYuan, mulCents, fmt, uid, prevMonth,
+  seedLists, addToList, removeFromList, lastUsed, listPrice, setListPrice, removeListPrice,
+  sanitize, mergeStates, touch, tomb, stamp, wipeState, importState,
 } from './core.js';
 import { createStore } from './store.js';
 
@@ -22,18 +23,27 @@ const yy = (yuan) => y(toCents(yuan));
 // mine 始终是用户自己的那本账；示例模式下 state 指向示例，mine 原样留着。
 let syncStatus = 'local';
 const store = createStore({
+  getState: () => mine,
   onStatus: (s) => { syncStatus = s; paintSync(); },
-  onRemote: (s) => { mine = hydrate(s); if (!demoMode) { state = mine; recompute(); } },
+  // 别的设备记的账：按每一笔合并进来（不是整本覆盖）
+  onRemote: (incoming) => {
+    mine = mergeStates(mine, sanitize(incoming).state);
+    if (!mine.lists) mine.lists = seedLists(mine);
+    if (demoMode && demoAuto && hasData(mine)) demoMode = false; // 一打开自动进的示例：云端有账就直接回到自己的账
+    if (!demoMode) { state = mine; recompute(); }
+  },
 });
-const hydrate = (s) => {
-  const h = { ...emptyState(), ...s };
-  if (!s?.lists) h.lists = seedLists(h); // 老账本：记过的名字直接进下拉单
+// 读进来的账先洗一遍：哪个字段坏了也不会整页打不开
+const hydrate = (raw) => {
+  const h = { ...emptyState(), ...sanitize(raw).state };
+  if (!h.lists) h.lists = seedLists(h); // 老账本：记过的名字直接进下拉单
   return h;
 };
-const hasData = (s) => Boolean(s && (s.purchases?.length || s.sales?.length || s.receipts?.length));
+const hasData = (s) => Boolean(s && (s.purchases?.length || s.sales?.length || s.receipts?.length || s.payments?.length));
 
 let mine = hydrate(store.local() || {});
 let demoMode = !hasData(mine);
+let demoAuto = demoMode; // 是不是一打开、账还空着时自动进的示例（自己点「看示例」的不算）
 let state = demoMode ? demoState() : mine;
 let R = compute(state);
 let tab = 'home';
@@ -44,12 +54,18 @@ function recompute() { R = compute(state); render(); }
 
 function save() {
   recompute();
-  if (!demoMode) store.save(state);
+  if (!demoMode) return store.save(mine);
+  // 示例里的改动不保存：紧跟着的「已记…」提示后面补一句，别让人以为记上了
+  queueMicrotask(() => {
+    const t = $('#toast');
+    toast(`${t.hidden ? '' : `${t.textContent}。`}这是示例数据，不会保存`);
+  });
 }
 
-function enterDemo() { demoMode = true; state = demoState(); tab = 'home'; recompute(); }
+function enterDemo() { demoMode = true; demoAuto = false; demoTry = false; state = demoState(); tab = 'home'; recompute(); }
 function exitDemo() {
   demoMode = false;
+  demoAuto = false;
   state = mine;
   tab = 'home';
   recompute();
@@ -57,22 +73,17 @@ function exitDemo() {
   toast(hasData(mine) ? '已回到你自己的账' : '开始记账：先记一笔进货或销售');
 }
 
-store.connect().then((remote) => {
-  if (remote) {
-    mine = hydrate(remote);
-    if (demoMode && hasData(mine)) demoMode = false;
-    if (!demoMode) { state = mine; recompute(); }
-  } else if (remote === null && hasData(mine)) {
-    store.save(mine); // 云端还没有，把本机已有的账传上去
-  }
-});
+// 连上云端：本机的账和云端的账按每一笔合并，连上之前记的也不会丢
+store.connect().then(() => paintSync());
 
 const SYNC_TEXT = {
   local: ['仅存在本机', 'muted'],
   'local-failed': ['本机保存失败，请导出备份', 'bad'],
-  saving: ['保存中…', 'muted'],
+  connecting: ['正在连云端，先存在本机', 'muted'],
+  saving: ['同步中…', 'muted'],
   saved: ['已存到你的账号', 'ok'],
-  error: ['云端保存失败，已留在本机', 'bad'],
+  offline: ['没连上云端，已存在本机，联网后自动同步', 'bad'],
+  denied: ['云端不让写，已存在本机，请导出备份', 'bad'],
   full: ['云端空间已满，请导出备份', 'bad'],
 };
 function syncPill() {
@@ -130,6 +141,7 @@ const ICON = {
 };
 const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
 
+let sheetDirty = false; // 表单里填过东西：点旁边 / ✕ 关掉前先问一句
 function openSheet(title, html, onMount) {
   $('#sheet-title').textContent = title;
   // 每次换一个新容器：表单都往 root 上挂 input 监听，复用旧节点会把上一个表单的监听也带过来
@@ -139,13 +151,20 @@ function openSheet(title, html, onMount) {
   $('#sheet-content').replaceWith(root);
   $('#sheet').hidden = false;
   document.body.style.overflow = 'hidden';
+  sheetDirty = false;
+  root.addEventListener('input', () => { sheetDirty = true; });
   onMount?.(root);
 }
 function closeSheet() {
+  sheetDirty = false;
   $('#sheet').hidden = true;
   document.body.style.overflow = '';
 }
-document.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeSheet(); });
+async function tryCloseSheet() {
+  if (sheetDirty && !(await ask('这次填的还没保存，关掉就没了。', '不要了，关掉', true, '继续填'))) return;
+  closeSheet();
+}
+document.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) tryCloseSheet(); });
 
 const names = (arr, k) => [...new Set(arr.map((x) => x[k]).filter(Boolean))];
 
@@ -600,13 +619,12 @@ function renderSettings() {
   $('#set-rev').onchange = $('#set-mar').onchange = () => {
     const rev = parseFloat($('#set-rev').value), mar = parseFloat($('#set-mar').value);
     if (!(rev >= 0 && rev < 100 && mar >= 0 && mar < 100)) return toast('税率填 0–100 之间的数');
-    state.settings = { ...state.settings, revenueRate: rev / 100, marginRate: mar / 100 };
+    state.settings = { ...state.settings, revenueRate: rev / 100, marginRate: mar / 100, _u: stamp() };
     save();
     toast('税率已更新');
   };
   $('#page-settings').querySelectorAll('[data-del-name]').forEach((b) => (b.onclick = () => {
-    const list = state.lists[b.dataset.delName];
-    list.splice(list.indexOf(b.dataset.name), 1);
+    removeFromList(state, b.dataset.delName, b.dataset.name);
     save();
     toast(`已从下拉单删掉「${b.dataset.name}」，已记的账不受影响`);
   }));
@@ -626,20 +644,23 @@ function renderSettings() {
     try {
       const data = JSON.parse(await f.text());
       if (!Array.isArray(data.sales) || !Array.isArray(data.receipts)) throw new Error('格式不对');
-      if (hasData(mine) && !(await ask('导入会覆盖你现在的整本账，确定？', '覆盖导入', true))) return;
-      mine = hydrate(data);
+      if (hasData(mine) && !(await ask('导入会覆盖你现在的整本账（登录同一账号的其他设备也会跟着变），确定？', '覆盖导入', true))) return;
+      const { state: clean, dropped } = sanitize(data);
+      mine = hydrate(importState(mine, clean));
       demoMode = false;
+      demoAuto = false;
       state = mine;
       save();
-      toast('已导入');
+      toast(dropped ? `已导入，跳过了 ${dropped} 条坏掉 / 重复的记录` : '已导入');
     } catch (err) { toast('导入失败：' + err.message); }
     e.target.value = '';
   };
   if ($('#demo')) $('#demo').onclick = enterDemo;
   $('#wipe').onclick = async () => {
-    if (!(await ask('清空你自己的整本账？清空前建议先导出备份。', '清空', true))) return;
-    mine = { ...emptyState(), settings: mine.settings };
+    if (!(await ask('清空你自己的整本账？登录同一账号的其他设备也会跟着清空。清空前建议先导出备份。', '清空', true))) return;
+    mine = wipeState(mine);
     demoMode = false;
+    demoAuto = false;
     state = mine;
     save();
     toast('已清空');
@@ -682,13 +703,8 @@ document.getElementById('app').addEventListener('click', (e) => {
   const act = e.target.closest('[data-act]');
   if (act) {
     const a = act.dataset.act;
-    if (a === 'purchase') return purchaseForm();
-    if (a === 'sale') return saleForm();
-    if (a === 'receipt') return receiptForm(null, act.dataset.customer);
-    if (a === 'payment') return paymentForm(null, act.dataset.supplier);
-    if (a === 'price') return priceForm();
-    if (a === 'withdraw') return withdrawForm();
-    if (a === 'exit-demo') return exitDemo();
+    if (demoMode && !demoTry && RECORD_ACTS.has(a)) return demoAsk(a, { ...act.dataset });
+    return runAct(a, act.dataset);
   }
   const ed = e.target.closest('[data-edit]');
   if (ed) {
@@ -702,13 +718,40 @@ document.getElementById('app').addEventListener('click', (e) => {
   }
 });
 
+function runAct(a, ds) {
+  if (a === 'purchase') return purchaseForm();
+  if (a === 'sale') return saleForm();
+  if (a === 'receipt') return receiptForm(null, ds.customer);
+  if (a === 'payment') return paymentForm(null, ds.supplier);
+  if (a === 'price') return priceForm();
+  if (a === 'withdraw') return withdrawForm();
+  if (a === 'exit-demo') return exitDemo();
+}
+
+// 示例模式里点「记一笔」：先问要不要开始记自己的账，免得记了半天发现没保存
+const RECORD_ACTS = new Set(['purchase', 'sale', 'receipt', 'payment', 'price', 'withdraw']);
+let demoTry = false; // 选了「继续在示例里试」：这次看示例期间不再问
+async function demoAsk(a, ds) {
+  const ans = await ask('现在看的是示例数据，在这里记的不会保存。\n要开始记自己的账吗？', '开始记自己的账', false, '继续在示例里试');
+  if (ans === null) return;
+  if (ans) {
+    exitDemo();
+    ds = {}; // 示例里的公司在自己的账里没有，不带过去
+  } else demoTry = true;
+  runAct(a, ds);
+}
+
+// 每改一笔都盖上时间，删掉的留一条删除记录：多台设备同步时按每一笔取最新的
 function upsert(list, rec) {
+  touch(rec);
   const i = list.findIndex((x) => x.id === rec.id);
   if (i >= 0) list[i] = rec; else list.push(rec);
 }
-function remove(list, id) {
+function remove(coll, id) {
+  const list = state[coll];
   const i = list.findIndex((x) => x.id === id);
   if (i >= 0) list.splice(i, 1);
+  tomb(state, `${coll}:${id}`);
 }
 const delBtn = (rec) => (rec ? '<button class="btn danger block" id="f-del" type="button" style="margin-top:8px">删除这笔</button>' : '');
 const num = (root, sel) => parseFloat($(sel, root).value);
@@ -869,7 +912,7 @@ function purchaseForm(rec) {
       if (used.length) return toast(`有 ${used.length} 笔付款付的是这笔进货，先删或改那些付款`);
       const fromHere = state.sales.filter((x) => (x.lots || []).some((l) => l.purchaseId === rec.id));
       if (fromHere.length) return toast(`有 ${fromHere.length} 笔销售从这批出的货，先改那些销售`);
-      if (await ask('删除这笔进货？', '删除', true)) { remove(state.purchases, rec.id); save(); closeSheet(); }
+      if (await ask('删除这笔进货？', '删除', true)) { remove('purchases', rec.id); save(); closeSheet(); }
     };
   });
 }
@@ -894,8 +937,9 @@ function saleForm(rec) {
   const keyOf = (sup, prod) => `${encodeURIComponent(sup)}|${encodeURIComponent(prod)}`; // 放进 HTML 属性也安全
 
   const groups = new Map();
+  const batchesOf = openBatchesIndex(state, rec?.id, (old?.lots || []).map((l) => l.purchaseId)); // 库存只算一遍
   for (const { supplier, product } of goodsKeys) {
-    const batches = openBatchesFor(state, supplier, product, rec?.id, (old?.lots || []).map((l) => l.purchaseId));
+    const batches = batchesOf(supplier, product);
     const sources = [supplier];
     const prices = new Map(sources.map((sup) => {
       const lp = listPrice(state, sup, product);
@@ -983,7 +1027,7 @@ function saleForm(rec) {
         if (!q) continue;
         const x = m.get(b.purchase.supplier) || { qty: 0, cogs: 0, lots: [] };
         x.qty += q;
-        x.cogs += Math.round(q * b.unit);
+        x.cogs += mulCents(b.purchase.price, q);
         x.lots.push({ purchaseId: b.purchase.id, qty: q });
         m.set(b.purchase.supplier, x);
       }
@@ -1067,7 +1111,7 @@ function saleForm(rec) {
         for (const [sup, x] of bySource(g)) {
           const price = g.prices.get(sup).price;
           if (price == null) { missing = true; continue; }
-          const a = Math.round(x.qty * toCents(price));
+          const a = mulCents(price, x.qty);
           amt += a; cogs += x.cogs; tax += taxFromTotals(a, x.cogs, R.settings).tax;
         }
         html = missing ? '<div class="ln warn"><span>填了上面的售价，这里会算出金额和扣税</span></div>'
@@ -1075,7 +1119,7 @@ function saleForm(rec) {
              <div class="ln"><span>进货成本（按选的批次）</span><span class="num">${y(cogs)}</span></div>
              <div class="ln"><span>差价 ${y(Math.max(0, amt - cogs))}，回清要扣税</span><span class="num">${y(tax)}</span></div>`;
       }
-      if (g.short) html += `<div class="ln warn"><span>库存只有 ${fmtQ(qty)} 件，差 ${g.short} 件</span></div>`;
+      if (g.short) html += `<div class="ln warn"><span>库存只有 ${fmtQ(qty)} 件，差 ${g.short} 件（保存时问你多的怎么记）</span></div>`;
       if (over) html += '<div class="ln bad"><span>有一批卖的件数超过了它的库存</span></div>';
       sum.innerHTML = html;
     };
@@ -1090,7 +1134,7 @@ function saleForm(rec) {
         if ([...bySource(g).keys()].some((sup) => g.prices.get(sup).price == null)) noPrice++;
         for (const [sup, x] of bySource(g)) {
           const price = g.prices.get(sup).price || 0;
-          const a = Math.round(x.qty * toCents(price));
+          const a = mulCents(price, x.qty);
           amt += a;
           tax += taxFromTotals(a, x.cogs, R.settings).tax;
         }
@@ -1100,7 +1144,7 @@ function saleForm(rec) {
         const q = Number(el.querySelector('[data-mqty]').value) || 0;
         if (!q) continue;
         kinds++; qty += q; partial = true;
-        amt += Math.round(q * toCents(Number(el.querySelector('[data-mprice]').value) || 0));
+        amt += mulCents(Number(el.querySelector('[data-mprice]').value) || 0, q);
       }
       $('#f-calc', root).innerHTML = kinds
         ? (noPrice ? `<div class="ln warn"><span>还有 ${noPrice} 样货没填售价（在展开的那样货最上面填）</span></div>` : '')
@@ -1193,11 +1237,27 @@ function saleForm(rec) {
       const customer = $('#f-party', root).value.trim();
       const note = $('#f-note', root).value.trim();
       if (!date || !customer) return toast('日期和卖给哪家要填');
+      // 填的件数比库存多：问一句多出来的怎么记，不能悄悄只记库存那么多
+      const shorts = [...groups.values()].filter((g) => g.short > 0 && g.batches.length);
+      let keepShort = false;
+      if (shorts.length) {
+        const lines = shorts.map((g) => `${g.product}（${g.supplier}）：库存 ${fmtQ(totalQty(g))} 件，填了 ${fmtQ(totalQty(g) + g.short)} 件`).join('\n');
+        const ans = await ask(`库存不够：\n${lines}\n\n多出来的件数怎么记？全部记上的话，多的那些先按平均进价算扣税，以后补记了进货会自动重算。`,
+          '全部记上', false, '只记有库存的');
+        if (ans === null) return;
+        keepShort = ans;
+      }
       const out = [];
       for (const g of groups.values()) {
         if (!totalQty(g)) continue;
         if (g.batches.some((b) => (Number(g.lots.get(b.purchase.id)) || 0) > b.remaining + 1e-9)) return toast(`${g.product}（${g.supplier}）有一批卖的件数超过了库存`);
-        for (const [sup, x] of bySource(g)) {
+        const src = bySource(g);
+        if (keepShort && g.short > 0) {
+          const x = src.get(g.supplier) || { qty: 0, cogs: 0, lots: [] };
+          x.qty += g.short;
+          src.set(g.supplier, x);
+        }
+        for (const [sup, x] of src) {
           const p = g.prices.get(sup);
           if (p.price == null || !(p.price >= 0)) {
             setOpen(g, true);
@@ -1247,13 +1307,13 @@ function saleForm(rec) {
         upsert(state.sales, sale);
       }
       save(); closeSheet();
-      toast(`已记销售${out.length > 1 ? `：${out.length} 样货` : ''}` + addedNote(added)
+      toast(`已记销售${out.length > 1 ? `：${out.length} 样货` : ''}` + addedNote(added) + (keepShort ? '，库存不够的先按平均进价算' : '')
         + (priced ? '，新售价已记进价目表' : '') + (updated ? `，价目表已更新 ${updated} 个售价` : ''));
     };
     if (rec) $('#f-del', root).onclick = async () => {
       const used = state.receipts.filter((x) => (x.allocations || []).some((a) => a.saleId === rec.id));
       if (used.length) return toast(`有 ${used.length} 笔回款核销了这笔销售，先删或改那些回款`);
-      if (await ask('删除这笔销售？它占用的库存会还回去。', '删除', true)) { remove(state.sales, rec.id); save(); closeSheet(); }
+      if (await ask('删除这笔销售？它占用的库存会还回去。', '删除', true)) { remove('sales', rec.id); save(); closeSheet(); }
     };
   });
 }
@@ -1462,7 +1522,7 @@ function receiptForm(rec, presetCustomer) {
     const paintAcct = () => root.querySelectorAll('.acct button').forEach((b) => b.classList.toggle('on', b.dataset.v === account));
 
     const paintAlloc = () => {
-      const open = customer ? openSalesFor(state, customer, rec?.id, keep) : [];
+      const open = customer ? openSalesFor(state, customer, rec?.id, keep, rates) : [];
       ed.render(open.map((o) => ({
         id: o.sale.id,
         title: `${o.sale.date} ${o.sale.product}${rates.get(o.sale.id).supplier ? `（${rates.get(o.sale.id).supplier}）` : ''} ${o.sale.qty}件 × ${o.sale.price}`,
@@ -1532,7 +1592,7 @@ function receiptForm(rec, presetCustomer) {
       upsert(state.receipts, r); save(); closeSheet();
       toast(allocations.length > 1 ? `已记回款：${allocHeadline(lines, RECEIPT_WORDS)}` : '已记回款');
     };
-    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔回款？对应几批货会变回没回款。', '删除', true)) { remove(state.receipts, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔回款？对应几批货会变回没回款。', '删除', true)) { remove('receipts', rec.id); save(); closeSheet(); } };
   });
 }
 
@@ -1627,7 +1687,7 @@ function paymentForm(rec, presetSupplier) {
       upsert(state.payments, r); save(); closeSheet();
       toast(allocations.length > 1 ? `已记付款：${allocHeadline(lines, PAYMENT_WORDS)}` : '已记付款');
     };
-    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔付款？', '删除', true)) { remove(state.payments, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔付款？', '删除', true)) { remove('payments', rec.id); save(); closeSheet(); } };
   });
 }
 
@@ -1665,7 +1725,7 @@ function withdrawForm(rec) {
       if (w.shortfall > 0) return toast(`超出了，那天最多提 ${y(Math.max(0, w.before))}`);
       upsert(state.withdrawals, r); save(); closeSheet(); toast('已提现');
     };
-    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔提现？', '删除', true)) { remove(state.withdrawals, rec.id); save(); closeSheet(); } };
+    if (rec) $('#f-del', root).onclick = async () => { if (await ask('删除这笔提现？', '删除', true)) { remove('withdrawals', rec.id); save(); closeSheet(); } };
   });
 }
 

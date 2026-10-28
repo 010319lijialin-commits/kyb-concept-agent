@@ -357,3 +357,101 @@ test('同一个药不分厂家列批次：按进货日期排', () => {
   assert.deepEqual(openBatchesFor(s, null, '甲').map((b) => b.purchase.id), ['pa2', 'pa', 'pb']);
   assert.deepEqual(openBatchesFor(s, '厂家B', '甲').map((b) => b.purchase.id), ['pb']);
 });
+
+// ---------- 修复：金额精度 ----------
+import { mulCents, sanitize, mergeStates, touch, tomb, removeFromList } from '../public/ledger/core.js';
+
+test('单价超过两位小数：金额按单价 × 件数算到分', () => {
+  assert.equal(mulCents(0.125, 10000), 125000);   // 进价 0.125 × 10000 片 = 1250 元，不是 1300
+  assert.equal(mulCents(0.001, 1000), 100);       // 0.001 × 1000 = 1 元，不是 0
+  assert.equal(mulCents(0.035, 3), 11);           // 0.105 → 0.11
+  assert.equal(mulCents(1.005, 1), 101);          // 浮点 100.4999… 不会被舍成 1.00
+  const s = emptyState();
+  s.purchases.push({ id: 'p', date: '2026-09-01', supplier: 'A', product: '片', qty: 10000, price: 0.125 });
+  s.sales.push({ id: 's', date: '2026-09-02', supplier: 'A', product: '片', customer: 'C', qty: 10000, price: 0.2, lots: [{ purchaseId: 'p', qty: 10000 }] });
+  const r = compute(s);
+  assert.equal(y(r.totals.purchaseTotal), 1250);
+  assert.equal(y(r.salesById.get('s').cogs), 1250);
+  assert.equal(y(r.totals.revenue), 2000);
+  // 750 差价 × 13% + 2000 × 1% = 97.5 + 20
+  assert.equal(y(r.salesById.get('s').taxFull), 117.5);
+});
+
+// ---------- 修复：坏数据不让页面挂掉 ----------
+test('读进来的数据先洗：坏字段、坏记录、重复编号都不报错', () => {
+  const { state, dropped } = sanitize({
+    sales: [{}, null, 'x', { id: 's1', qty: 'abc', price: null, lots: 'oops' }, { id: 's1', qty: 2, price: 1, _u: 5 }],
+    receipts: [{ id: 'r', allocations: 'oops', amount: '12' }],
+    purchases: [{ id: 'p' }], prices: 'bad', lists: { products: 'bad', customers: ['A', null, 3] }, settings: 'x',
+  });
+  assert.equal(dropped, 4);
+  assert.equal(state.sales.length, 1);
+  assert.equal(state.sales[0].qty, 2);           // 重复编号留最新的
+  assert.deepEqual(state.receipts[0].allocations, []);
+  assert.equal(state.receipts[0].amount, 12);
+  assert.deepEqual(state.prices, []);
+  assert.deepEqual(state.lists.customers, ['A', '3']);
+  assert.doesNotThrow(() => compute({ ...emptyState(), ...state }));
+  assert.equal(sanitize(null).state.sales.length, 0);
+  assert.equal(sanitize({ sales: [] }).state.lists, undefined); // 没有下拉单：留给页面用记过的名字生成
+});
+
+// ---------- 修复：多设备按每一笔合并 ----------
+test('两台设备各记一笔：合并后两笔都在', () => {
+  const base = emptyState();
+  const a = { ...base, purchases: [touch({ id: 'A1', date: '2026-09-01' })] };
+  const b = { ...base, purchases: [touch({ id: 'B1', date: '2026-09-01' })] };
+  assert.deepEqual(mergeStates(a, b).purchases.map((x) => x.id).sort(), ['A1', 'B1']);
+});
+
+test('同一笔两边都改过：留后改的', () => {
+  const old = { id: 'x', qty: 1, _u: 100 };
+  const nu = { id: 'x', qty: 2, _u: 200 };
+  assert.equal(mergeStates({ ...emptyState(), sales: [old] }, { ...emptyState(), sales: [nu] }).sales[0].qty, 2);
+  assert.equal(mergeStates({ ...emptyState(), sales: [nu] }, { ...emptyState(), sales: [old] }).sales[0].qty, 2);
+});
+
+test('一台删了、另一台还留着旧的：合并后是删掉的，不会复活', () => {
+  const a = emptyState(); a.sales = [];
+  tomb(a, 'sales:x');
+  const b = { ...emptyState(), sales: [{ id: 'x', qty: 1, _u: 1 }] };
+  assert.equal(mergeStates(a, b).sales.length, 0);
+  assert.equal(mergeStates(b, a).sales.length, 0);
+  // 删了之后另一台又改了它（改的时间更晚）：留下
+  const c = { ...emptyState(), sales: [{ id: 'x', qty: 9, _u: Date.now() + 10000 }] };
+  assert.equal(mergeStates(a, c).sales.length, 1);
+});
+
+test('价目表、下拉单、设置也按条合并', () => {
+  const a = emptyState(); const b = emptyState();
+  setListPrice(a, 'A', '甲', 1.5);
+  setListPrice(b, 'A', '乙', 2);
+  addToList(a, 'customers', '仁和');
+  addToList(b, 'customers', '康宁');
+  b.settings = { revenueRate: 0.02, marginRate: 0.13, _u: Date.now() + 1000 };
+  const m = mergeStates(a, b);
+  assert.deepEqual(m.prices.map((p) => p.product).sort(), ['乙', '甲']);
+  assert.deepEqual(m.lists.customers.sort(), ['仁和', '康宁']);
+  assert.equal(m.settings.revenueRate, 0.02);
+  removeListPrice(a, 'A', '甲'); removeFromList(a, 'customers', '仁和');
+  const m2 = mergeStates(a, m);
+  assert.deepEqual(m2.prices.map((p) => p.product), ['乙']);
+  assert.deepEqual(m2.lists.customers, ['康宁']);
+});
+
+test('清空 / 导入：别的设备同步后也跟着清空，导入的不会被清空记录删掉', async () => {
+  const { wipeState, importState, mergeStates, touch, emptyState: es } = await import('../public/ledger/core.js');
+  const other = { ...es(), sales: [touch({ id: 'a', date: '2026-10-01' })], prices: [touch({ supplier: 'S', product: 'P', price: 2 })], lists: { products: ['P'], suppliers: ['S'], customers: [] }, listU: {} };
+  const mine = JSON.parse(JSON.stringify(other));
+  const wiped = wipeState(mine);
+  const after = mergeStates(other, wiped);
+  assert.equal(after.sales.length, 0);
+  assert.equal(after.prices.length, 0);
+  assert.deepEqual(after.lists.products, []);
+  const imported = importState(mine, { sales: [{ id: 'a', date: '2026-01-01' }, { id: 'b' }], purchases: [], receipts: [], settings: { revenueRate: 0.02, marginRate: 0.13 } });
+  const synced = mergeStates(other, imported);
+  assert.deepEqual(synced.sales.map((x) => x.id).sort(), ['a', 'b']);
+  assert.equal(synced.sales.find((x) => x.id === 'a').date, '2026-01-01');
+  assert.equal(synced.settings.revenueRate, 0.02);
+  assert.deepEqual(synced.prices, []);
+});

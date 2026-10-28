@@ -24,7 +24,113 @@ export function emptyState() {
     payments: [],    // { id, date, supplier, account, amount(打出去的钱), allocations:[{purchaseId, amount}], note }
     withdrawals: [], // { id, date, net(从公司提到个人的钱), note }
     lists: { products: [], suppliers: [], customers: [] }, // 下拉单：用户自己选择要不要加进来的名字
+    listU: {},       // 下拉单里每个名字加进来的时间（多设备合并用）
+    deleted: {},     // 删掉的东西：{ 'sales:<id>': 删除时间 }，多设备合并时不会被另一台设备的旧数据「复活」
   };
+}
+
+// ---------- 修改时间 / 删除记录（多设备、多人合并用） ----------
+// 每条记录带 _u（最后修改时间，毫秒）。两台设备的账合并时，同一笔取 _u 新的；
+// 删除不是直接没了，而是在 deleted 里记一笔删除时间，比那笔最后修改时间新就算删了。
+let lastStamp = 0;
+export const stamp = () => (lastStamp = Math.max(Date.now(), lastStamp + 1)); // 同一毫秒里也严格递增
+export const COLLECTIONS = ['purchases', 'sales', 'receipts', 'payments', 'withdrawals'];
+export function touch(rec) { rec._u = stamp(); return rec; }
+export function tomb(state, key) { (state.deleted ||= {})[key] = stamp(); }
+const priceKey = (p) => `${p.supplier}\u0001${p.product}`;
+
+// 两份账按每一笔合并（不会整本覆盖）：a 是本机，b 是云端/别的设备。打平时以 a 为准
+export function mergeStates(a, b) {
+  if (!b) return a;
+  const out = { ...a };
+  const del = { ...(a.deleted || {}) };
+  for (const [k, u] of Object.entries(b.deleted || {})) if (!(del[k] >= u)) del[k] = u;
+  const newer = (x, y) => (!x ? y : !y ? x : (y._u || 0) > (x._u || 0) ? y : x);
+  for (const c of COLLECTIONS) {
+    const m = new Map();
+    for (const r of [...(a[c] || []), ...(b[c] || [])]) m.set(r.id, newer(m.get(r.id), r));
+    out[c] = [...m.values()].filter((r) => !(del[`${c}:${r.id}`] >= (r._u || 0)));
+  }
+  const pm = new Map();
+  for (const p of [...(a.prices || []), ...(b.prices || [])]) pm.set(priceKey(p), newer(pm.get(priceKey(p)), p));
+  out.prices = [...pm.values()].filter((p) => !(del[`price:${priceKey(p)}`] >= (p._u || 0)));
+  out.settings = !b.settings ? a.settings : !a.settings ? b.settings : (b.settings._u || 0) > (a.settings._u || 0) ? b.settings : a.settings;
+  if (a.lists || b.lists) {
+    const listU = { ...(a.listU || {}) };
+    for (const [k, u] of Object.entries(b.listU || {})) if (!(listU[k] >= u)) listU[k] = u;
+    out.lists = {};
+    for (const key of ['products', 'suppliers', 'customers']) {
+      const names = [...new Set([...(a.lists?.[key] || []), ...(b.lists?.[key] || [])])];
+      out.lists[key] = names.filter((n) => !(del[`list:${key}:${n}`] >= (listU[`${key}:${n}`] || 0)));
+    }
+    out.listU = listU;
+  }
+  out.deleted = del;
+  return out;
+}
+
+// 清空：每一笔都留一条删除记录，别的设备同步时跟着删。设置（税率）保留。
+export function wipeState(s) {
+  const out = { ...emptyState(), settings: s.settings, lists: { products: [], suppliers: [], customers: [] }, listU: {}, deleted: { ...(s.deleted || {}) } };
+  const t = stamp();
+  for (const c of COLLECTIONS) for (const r of s[c] || []) out.deleted[`${c}:${r.id}`] = t;
+  for (const p of s.prices || []) out.deleted[`price:${priceKey(p)}`] = t;
+  for (const k of LIST_KEYS) for (const n of s.lists?.[k] || []) out.deleted[`list:${k}:${n}`] = t;
+  return out;
+}
+
+// 导入备份 = 清空现在的账，再把备份里的每一笔重新记一遍（比清空晚，同步时不会被删掉）
+export function importState(current, data) {
+  const out = wipeState(current);
+  const t = stamp();
+  for (const c of COLLECTIONS) out[c] = (data[c] || []).map((r) => ({ ...r, _u: t }));
+  out.prices = (data.prices || []).map((p) => ({ ...p, _u: t }));
+  out.settings = { ...(data.settings || current.settings), _u: t };
+  out.lists = data.lists || seedLists(out);
+  for (const k of LIST_KEYS) for (const n of out.lists[k] || []) out.listU[`${k}:${n}`] = t;
+  return out;
+}
+
+// ---------- 读进来的数据先洗一遍 ----------
+// 本机缓存、云端、导入的备份，任何一个字段坏了都不能让整个页面打不开：
+// 不是对象的记录、没有编号的记录直接丢掉；数字字段转成数字；列表字段保证是列表；重复编号只留最新的一条。
+const isObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+const arrOf = (v) => (Array.isArray(v) ? v : []);
+const str = (v) => (v == null ? '' : String(v));
+const num0 = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+export function sanitize(raw) {
+  const r = isObj(raw) ? raw : {};
+  let dropped = 0;
+  const clean = (list, fix) => {
+    const m = new Map();
+    for (const x of arrOf(list)) {
+      if (!isObj(x) || x.id == null || str(x.id) === '') { dropped++; continue; }
+      const y = fix({ ...x, id: str(x.id), date: str(x.date), note: str(x.note) });
+      const prev = m.get(y.id);
+      if (prev) dropped++;
+      if (!prev || (y._u || 0) >= (prev._u || 0)) m.set(y.id, y);
+    }
+    return [...m.values()];
+  };
+  const alloc = (list, key) => arrOf(list).filter(isObj).map((a) => ({ [key]: str(a[key]), amount: num0(a.amount) }));
+  const s = {
+    version: 4,
+    settings: isObj(r.settings) ? { ...r.settings } : { ...DEFAULT_SETTINGS },
+    purchases: clean(r.purchases, (x) => ({ ...x, supplier: str(x.supplier), product: str(x.product), qty: num0(x.qty), price: num0(x.price) })),
+    sales: clean(r.sales, (x) => ({
+      ...x, supplier: str(x.supplier), product: str(x.product), customer: str(x.customer), qty: num0(x.qty), price: num0(x.price),
+      ...(x.lots != null ? { lots: arrOf(x.lots).filter(isObj).map((l) => ({ purchaseId: str(l.purchaseId), qty: num0(l.qty) })) } : {}),
+    })),
+    receipts: clean(r.receipts, (x) => ({ ...x, customer: str(x.customer), account: x.account === ACCOUNT.PERSONAL ? ACCOUNT.PERSONAL : ACCOUNT.COMPANY, amount: num0(x.amount), allocations: alloc(x.allocations, 'saleId') })),
+    payments: clean(r.payments, (x) => ({ ...x, supplier: str(x.supplier), account: x.account === ACCOUNT.COMPANY ? ACCOUNT.COMPANY : ACCOUNT.PERSONAL, amount: num0(x.amount), allocations: alloc(x.allocations, 'purchaseId') })),
+    withdrawals: clean(r.withdrawals, (x) => ({ ...x, net: num0(x.net) })),
+    prices: arrOf(r.prices).filter((p) => isObj(p) && p.supplier != null && p.product != null).map((p) => ({ ...p, supplier: str(p.supplier), product: str(p.product), price: num0(p.price) })),
+    listU: isObj(r.listU) ? { ...r.listU } : {},
+    deleted: isObj(r.deleted) ? { ...r.deleted } : {},
+  };
+  if (isObj(r.lists)) s.lists = { products: arrOf(r.lists.products).map(str).filter(Boolean), suppliers: arrOf(r.lists.suppliers).map(str).filter(Boolean), customers: arrOf(r.lists.customers).map(str).filter(Boolean) };
+  return { state: s, dropped };
 }
 
 // ---------- 下拉单 ----------
@@ -48,7 +154,15 @@ export function addToList(state, key, name) {
   const list = state.lists[key] || (state.lists[key] = []);
   if (list.includes(n)) return false;
   list.push(n);
+  (state.listU ||= {})[`${key}:${n}`] = stamp();
   return true;
+}
+
+export function removeFromList(state, key, name) {
+  const list = state.lists?.[key] || [];
+  const i = list.indexOf(name);
+  if (i >= 0) list.splice(i, 1);
+  tomb(state, `list:${key}:${name}`);
 }
 
 // 每个名字最近一次用到的日期，下拉单里按它排（最近用过的在前）
@@ -61,7 +175,16 @@ export function lastUsed(state, key) {
   return m;
 }
 
-export const toCents = (yuan) => Math.round((Number(yuan) || 0) * 100);
+// 浮点数先按 15 位有效数字收一下再取整：1.005×100 = 100.4999… 这种不会被错误地舍掉
+// 只在刚好卡在 .5 附近时才走慢的 toPrecision
+const roundFix = (v) => {
+  const f = v - Math.floor(v);
+  return Math.abs(f - 0.5) < 1e-7 ? Math.round(Number(v.toPrecision(15))) : Math.round(v);
+};
+export const toCents = (yuan) => roundFix((Number(yuan) || 0) * 100);
+// 单价 × 件数直接算到分。单价可以有很多位小数（按片计价 0.035 元、进价 0.125 元），
+// 不能先把单价取整到分再乘件数：0.125 × 10000 会算成 1300 而不是 1250
+export const mulCents = (price, qty) => roundFix((Number(price) || 0) * (Number(qty) || 0) * 100);
 export const toYuan = (cents) => cents / 100;
 const isNum = (v) => v !== '' && v != null && Number.isFinite(Number(v));
 
@@ -74,8 +197,8 @@ export function normSettings(s = {}) {
 
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-export const saleAmount = (s) => toYuan(Math.round(toCents(s.price) * Number(s.qty || 0)));
-export const purchaseAmount = (p) => toYuan(Math.round(toCents(p.price) * Number(p.qty || 0)));
+export const saleAmount = (s) => toYuan(mulCents(s.price, s.qty));
+export const purchaseAmount = (p) => toYuan(mulCents(p.price, p.qty));
 
 // 各品种加权平均进价（元/件）
 export function avgCosts(state) {
@@ -158,11 +281,12 @@ export function listPrice(state, supplier, product) {
 export function setListPrice(state, supplier, product, price) {
   state.prices = state.prices || [];
   const x = state.prices.find((p) => p.supplier === supplier && p.product === product);
-  if (x) x.price = Number(price);
-  else state.prices.push({ supplier, product, price: Number(price) });
+  if (x) { x.price = Number(price); touch(x); }
+  else state.prices.push(touch({ supplier, product, price: Number(price) }));
 }
 export function removeListPrice(state, supplier, product) {
   state.prices = (state.prices || []).filter((p) => !(p.supplier === supplier && p.product === product));
+  tomb(state, `price:${supplier}\u0001${product}`);
 }
 
 export const costBasis = (state, product, date, supplier = '') => costLookup(state)(product, date, supplier);
@@ -180,7 +304,7 @@ export function saleTaxRate(price, cost, settings) {
 export function saleTaxBreakdown(sale, cost, settings) {
   const S = normSettings(settings);
   const total = toCents(saleAmount(sale));
-  const margin = Math.max(0, Math.round((toCents(sale.price) - toCents(cost)) * Number(sale.qty || 0)));
+  const margin = Math.max(0, mulCents(sale.price, sale.qty) - mulCents(cost, sale.qty));
   const revenueTax = Math.round(total * S.revenueRate);
   const marginTax = Math.round(margin * S.marginRate);
   return { total, margin, revenueTax, marginTax, tax: revenueTax + marginTax };
@@ -209,9 +333,13 @@ export function batchCosting(state) {
   const supplierOf = supplierResolver(state);
   const lookup = costLookup(state);
   const batches = new Map(state.purchases.map((p) => [p.id, {
-    purchase: p, key: productKey(p.supplier, p.product), qty: qtyOf(p.qty), remaining: qtyOf(p.qty), unit: toCents(p.price),
+    purchase: p, key: productKey(p.supplier, p.product), qty: qtyOf(p.qty), remaining: qtyOf(p.qty), unit: (Number(p.price) || 0) * 100, // 分/件，不取整
   }]));
   const order = [...batches.values()].sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id));
+  // 先进先出时只在同一个药的批次里找，不用每笔销售都把全部进货扫一遍
+  const byKey = new Map(), byProduct = new Map();
+  const push = (m, k, b) => { if (!m.has(k)) m.set(k, []); m.get(k).push(b); };
+  for (const b of order) { push(byKey, b.key, b); push(byProduct, b.purchase.product, b); }
   const out = new Map();
   const warn = [];
 
@@ -229,7 +357,7 @@ export function batchCosting(state) {
       if (!b) { rec.missing += q; warn.push(`${s.date} 卖给 ${s.customer} 的${s.product}，用到的进货批次已经删了，那 ${q} 件先按平均进价算`); continue; }
       b.remaining -= q;
       rec.lots.push({ purchaseId: l.purchaseId, qty: q, unit: b.unit });
-      rec.cogs += Math.round(q * b.unit);
+      rec.cogs += mulCents(b.purchase.price, q);
     }
     rec.need = Math.max(0, qtyOf(s.qty) - sum); // 批次没分够的件数，下面先进先出补上
   }
@@ -238,16 +366,16 @@ export function batchCosting(state) {
   const todo = state.sales.filter((s) => out.get(s.id).need > EPS).sort((a, b) => cmp(a.date, b.date) || cmp(a.id, b.id));
   for (const s of todo) {
     const rec = out.get(s.id);
-    const match = (b) => b.remaining > EPS && (rec.supplier ? b.key === productKey(rec.supplier, s.product) : b.purchase.product === s.product);
+    const pool = (rec.supplier ? byKey.get(productKey(rec.supplier, s.product)) : byProduct.get(s.product)) || [];
     for (const pass of [(b) => b.purchase.date <= s.date, () => true]) {
-      for (const b of order) {
+      for (const b of pool) {
         if (rec.need <= EPS) break;
-        if (!match(b) || !pass(b)) continue;
+        if (b.remaining <= EPS || !pass(b)) continue;
         const q = Math.min(rec.need, b.remaining);
         b.remaining -= q;
         rec.need -= q;
         rec.lots.push({ purchaseId: b.purchase.id, qty: q, unit: b.unit, auto: true });
-        rec.cogs += Math.round(q * b.unit);
+        rec.cogs += mulCents(b.purchase.price, q);
       }
     }
     rec.missing += Math.max(0, rec.need);
@@ -260,7 +388,7 @@ export function batchCosting(state) {
     delete rec.need;
     if (rec.missing > EPS) {
       const { cost, basis } = lookup(s.product, s.date, rec.supplier);
-      rec.cogs += Math.round(rec.missing * cost * 100);
+      rec.cogs += mulCents(cost, rec.missing);
       rec.basis = basis;
     } else rec.basis = 'lots';
   }
@@ -272,11 +400,23 @@ export function batchCosting(state) {
 // 某个药还有货的批次（去掉 excludeSaleId 这笔自己用掉的），按进货日期排；keepIds 里的没货了也留着。
 // supplier 传 null：不限厂家（记销售时同一个药合成一行，各厂家的批次一起列）
 export function openBatchesFor(state, supplier, product, excludeSaleId, keepIds = []) {
+  return openBatchesIndex(state, excludeSaleId, keepIds)(supplier, product);
+}
+
+// 算一次批次剩余，返回 (supplier, product) => 还有货的批次。记销售一次列几十上百样货时用这个
+export function openBatchesIndex(state, excludeSaleId, keepIds = []) {
   const { batches } = batchCosting({ ...state, sales: state.sales.filter((x) => x.id !== excludeSaleId) });
-  return [...batches.values()]
-    .filter((b) => (supplier == null || b.purchase.supplier === supplier) && b.purchase.product === product && (b.remaining > EPS || keepIds.includes(b.purchase.id)))
+  const all = [...batches.values()]
+    .filter((b) => b.remaining > EPS || keepIds.includes(b.purchase.id))
     .sort((a, b) => cmp(a.purchase.date, b.purchase.date) || cmp(a.purchase.id, b.purchase.id))
     .map((b) => ({ purchase: b.purchase, remaining: Math.max(0, b.remaining), unit: b.unit }));
+  const byKey = new Map();
+  for (const b of all) {
+    const k = productKey(b.purchase.supplier, b.purchase.product);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(b);
+  }
+  return (supplier, product) => (supplier == null ? all.filter((b) => b.purchase.product === product) : byKey.get(productKey(supplier, product)) || []);
 }
 
 // 先进先出：qty 件从哪几批出（先用卖出那天之前进的货）
@@ -297,8 +437,8 @@ export function fifoLots(state, supplier, product, qty, date, excludeSaleId) {
 }
 
 // saleId → { cost(元/件), cogs(分), basis, rate, supplier, lots }
-export function saleRates(state) {
-  const { sales } = batchCosting(state);
+export function saleRates(state, costing = batchCosting(state)) {
+  const { sales } = costing;
   const S = normSettings(state.settings);
   const m = new Map();
   for (const s of state.sales) {
@@ -321,9 +461,9 @@ function settledBySale(state, excludeReceiptId) {
 }
 
 // 某个下游的未回清销售，按日期先后排；keepIds 里的即使已回清也留着（改旧回款时要显示它原来分到的批次）
-export function openSalesFor(state, customer, excludeReceiptId, keepIds = []) {
+// rates 可以传进来（表单里算一次反复用，不用每敲一个字都重算）
+export function openSalesFor(state, customer, excludeReceiptId, keepIds = [], rates = saleRates(state)) {
   const settled = settledBySale(state, excludeReceiptId);
-  const rates = saleRates(state);
   return state.sales
     .filter((s) => s.customer === customer)
     .map((s) => {
@@ -336,10 +476,10 @@ export function openSalesFor(state, customer, excludeReceiptId, keepIds = []) {
 }
 
 // 回到公司：到账多少就核销多少，按先进先出分到未回清销售上
-export function autoAllocate(state, customer, grossYuan, excludeReceiptId) {
+export function autoAllocate(state, customer, grossYuan, excludeReceiptId, rates) {
   let left = toCents(grossYuan);
   const out = [];
-  for (const o of openSalesFor(state, customer, excludeReceiptId)) {
+  for (const o of openSalesFor(state, customer, excludeReceiptId, [], rates)) {
     if (left <= 0) break;
     const take = Math.min(left, o.outstanding);
     out.push({ saleId: o.sale.id, amount: toYuan(take) });
@@ -349,10 +489,10 @@ export function autoAllocate(state, customer, grossYuan, excludeReceiptId) {
 }
 
 // 回到个人：到账的是扣完税的钱，按先进先出反推每笔销售核销了多少
-export function autoAllocateNet(state, customer, netYuan, excludeReceiptId) {
+export function autoAllocateNet(state, customer, netYuan, excludeReceiptId, rates) {
   let left = toCents(netYuan);
   const out = [];
-  for (const o of openSalesFor(state, customer, excludeReceiptId)) {
+  for (const o of openSalesFor(state, customer, excludeReceiptId, [], rates)) {
     if (left <= 0) break;
     const cap = o.outstanding - taxOn(o.outstanding, o.rate);
     const gross = cap <= left ? o.outstanding : Math.min(o.outstanding, Math.round(left / (1 - o.rate)));
@@ -425,7 +565,7 @@ export function compute(state) {
   const issues = [];
   const costing = batchCosting(state);
   issues.push(...costing.warn);
-  const rates = saleRates(state);
+  const rates = saleRates(state, costing);
   const payments = state.payments || [];
   const withdrawalsIn = state.withdrawals || [];
 
@@ -469,9 +609,13 @@ export function compute(state) {
     return t ? list.reduce((s, x) => s + x.total * x.rate, 0) / t : settings.revenueRate;
   };
   const globalRate = avgRate(sales);
+  const rateCache = new Map();
   const customerRate = (c) => {
-    const list = sales.filter((s) => s.customer === c);
-    return list.length ? avgRate(list) : globalRate;
+    if (!rateCache.has(c)) {
+      const list = sales.filter((s) => s.customer === c);
+      rateCache.set(c, list.length ? avgRate(list) : globalRate);
+    }
+    return rateCache.get(c);
   };
 
   // ---- 库存 & 毛利 ----
@@ -650,9 +794,12 @@ export function previewPayment(state, payment) {
   return compute(probe).payments.get(PROBE);
 }
 
+// 千分位、两位小数。不用 toLocaleString：数据多了它是最慢的一步
 export function fmt(cents) {
-  const v = cents / 100;
-  return v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const c = Math.round(Number(cents) || 0);
+  const a = Math.abs(c);
+  const int = String(Math.floor(a / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${c < 0 ? '-' : ''}${int}.${String(a % 100).padStart(2, '0')}`;
 }
 
 export const pct = (rate) => `${(rate * 100).toFixed(2).replace(/\.?0+$/, '')}%`;
