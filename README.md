@@ -1,6 +1,6 @@
 # 🌱 枝 · 思维树 + 表达练习
 
-> 📒 同一个服务里还有一个独立的小工具 **进销账**（`/ledger/`）：医药销售的进货 / 付上游 / 销售 / 合并回款 / 扣税 / 提现。直接打开：https://claude.ai/artifact/GkaFMssXvTfsCCHEFCgBTh ，说明见 [`public/ledger/README.md`](public/ledger/README.md)。
+> 📒 仓库里还有一个独立的小工具 **进销账**（`/ledger/`）：医药销售的进货 / 付上游 / 销售 / 合并回款 / 扣税 / 提现，几个人用手机号登录一起记一本账、每人权限不同。服务器版 `npm run ledger`（`ledger-server.js`），一个人用也可以直接打开 https://claude.ai/artifact/GkaFMssXvTfsCCHEFCgBTh 。说明和部署见 [`public/ledger/README.md`](public/ledger/README.md)。
 
 一个手机浏览器就能用的网页，两件事拧成一件：
 

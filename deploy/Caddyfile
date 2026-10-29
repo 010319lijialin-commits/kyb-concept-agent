@@ -1,0 +1,7 @@
+# 用 Caddy 给进销账加上 HTTPS（自动申请免费证书）。把 jz.example.com 换成你的域名，
+# 域名先解析到这台服务器，然后 `caddy run --config deploy/Caddyfile`（或装成系统服务）。
+# 装到手机桌面、离线打开都要求 HTTPS。
+jz.example.com {
+	encode gzip
+	reverse_proxy localhost:3100
+}

@@ -5,9 +5,13 @@ import {
   previewWithdrawal, companyBalanceAt, receiptGross,
   saleAmount, purchaseAmount, toCents, toYuan, mulCents, fmt, uid, prevMonth,
   seedLists, addToList, removeFromList, lastUsed, listPrice, setListPrice, removeListPrice,
-  sanitize, mergeStates, touch, tomb, stamp, wipeState, importState,
+  sanitize, mergeStates, touch, tomb, wipeState, importState,
 } from './core.js';
 import { createStore } from './store.js';
+import { env } from './env.js';
+import { createServerStore, api, saveSession, clearSession } from './remote.js';
+import { pendingChanges } from './sync.js';
+import { ROLES, ROLE_ORDER, RECORD_KINDS, KIND_LABEL, effectivePerms, canWrite, canEditRecord, ACT_KIND, EDIT_KIND } from './roles.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,20 +23,57 @@ const y = (cents) => (cents < 0 ? '−¥' : '¥') + fmt(Math.abs(cents));
 const yy = (yuan) => y(toCents(yuan));
 
 // ---------- 存储 ----------
+// 三种打开方式（boot.js 判断）：claude.ai 页面存在 claude.ai 账号里（store.js）；
+// 进销账服务器上要登录，几个人一起记一本账（remote.js）；别的地方只存本机。
 // 示例模式：第一次打开、账本还是空的时候先放一套示例数据给人点着看，示例里的操作一律不保存。
 // mine 始终是用户自己的那本账；示例模式下 state 指向示例，mine 原样留着。
-let syncStatus = 'local';
-const store = createStore({
-  getState: () => mine,
-  onStatus: (s) => { syncStatus = s; paintSync(); },
-  // 别的设备记的账：按每一笔合并进来（不是整本覆盖）
-  onRemote: (incoming) => {
-    mine = mergeStates(mine, sanitize(incoming).state);
-    if (!mine.lists) mine.lists = seedLists(mine);
-    if (demoMode && demoAuto && hasData(mine)) demoMode = false; // 一打开自动进的示例：云端有账就直接回到自己的账
-    if (!demoMode) { state = mine; recompute(); }
-  },
-});
+const SERVER = env.mode === 'server';
+const ME = env.me?.user || null;
+const LEDGER = env.ledger || null;
+const PERMS = SERVER ? LEDGER.perms : null; // null = 不分权限（只有自己用）
+const can = (kind) => canWrite(PERMS, kind);
+const canEdit = (kind, rec) => canEditRecord(PERMS, kind, rec?._by, ME?.id);
+let members = []; // 这本账的成员，用来显示每笔是谁记的
+let invites = [];
+let former = []; // 记过账、后来被移出的人
+let membersAt = 0; // 上次取成员列表的时间
+const memberName = (id) => members.find((m) => m.id === id)?.name || (former.find((m) => m.id === id) ? `${former.find((m) => m.id === id).name}（已移出）` : '');
+// 每笔是谁记的。碰到还不认识的人（刚加入的同事），重新取一次成员列表
+const byTag = (r) => {
+  if (!SERVER || !r?._by) return '';
+  const name = memberName(r._by);
+  if (!name) { if (Date.now() - membersAt > 5000) setTimeout(loadMembers); return ''; }
+  if (members.length + former.length < 2) return '';
+  return ` · <span class="by">${esc(name)}记</span>`;
+};
+
+let syncStatus = SERVER ? 'connecting' : 'local';
+// 别的设备 / 别人记的账并进来以后
+const afterRemote = () => {
+  if (!mine.lists) mine.lists = seedLists(mine);
+  if (demoMode && demoAuto && hasData(mine)) demoMode = false; // 一打开自动进的示例：云端有账就直接回到自己的账
+  if (!demoMode) { state = mine; recompute(); }
+};
+const REJECT_REASON = { 'no-permission': '没有权限', 'not-yours': '不是你记的', 'bad-data': '数据不对', 'bad-key': '数据不对', 'too-big': '太大了' };
+const store = SERVER
+  ? createServerStore({
+    userId: ME.id,
+    ledgerId: LEDGER.id,
+    getState: () => mine,
+    setState: (s) => { mine = s; afterRemote(); },
+    onStatus: (s) => { syncStatus = s; paintSync(); },
+    onGone: (why) => gone(why),
+    onRejected: (list) => {
+      const why = [...new Set(list.map((x) => REJECT_REASON[x.reason] || x.reason))].join('、');
+      toast(`服务器没收下 ${list.length} 笔（${why}），已恢复成原来的样子`);
+    },
+  })
+  : createStore({
+    getState: () => mine,
+    onStatus: (s) => { syncStatus = s; paintSync(); },
+    // 别的设备记的账：按每一笔合并进来（不是整本覆盖）
+    onRemote: (incoming) => { mine = mergeStates(mine, sanitize(incoming).state); afterRemote(); },
+  });
 // 读进来的账先洗一遍：哪个字段坏了也不会整页打不开
 const hydrate = (raw) => {
   const h = { ...emptyState(), ...sanitize(raw).state };
@@ -41,8 +82,9 @@ const hydrate = (raw) => {
 };
 const hasData = (s) => Boolean(s && (s.purchases?.length || s.sales?.length || s.receipts?.length || s.payments?.length));
 
-let mine = hydrate(store.local() || {});
-let demoMode = !hasData(mine);
+let mine = hydrate((SERVER ? await store.load() : store.local()) || {});
+// 服务器上的账本：先同步一次再决定要不要放示例（别人的账本第一次打开时本机还是空的）
+let demoMode = !SERVER && !hasData(mine);
 let demoAuto = demoMode; // 是不是一打开、账还空着时自动进的示例（自己点「看示例」的不算）
 let state = demoMode ? demoState() : mine;
 let R = compute(state);
@@ -74,18 +116,74 @@ function exitDemo() {
 }
 
 // 连上云端：本机的账和云端的账按每一笔合并，连上之前记的也不会丢
-store.connect().then(() => paintSync());
+store.connect().then(() => {
+  paintSync();
+  if (SERVER) afterFirstSync();
+});
 
 const SYNC_TEXT = {
   local: ['仅存在本机', 'muted'],
   'local-failed': ['本机保存失败，请导出备份', 'bad'],
-  connecting: ['正在连云端，先存在本机', 'muted'],
+  connecting: [SERVER ? '正在连服务器…' : '正在连云端，先存在本机', 'muted'],
   saving: ['同步中…', 'muted'],
-  saved: ['已存到你的账号', 'ok'],
-  offline: ['没连上云端，已存在本机，联网后自动同步', 'bad'],
+  saved: [SERVER ? '已同步' : '已存到你的账号', 'ok'],
+  offline: [SERVER ? '没网，已存在本机，联网后自动同步' : '没连上云端，已存在本机，联网后自动同步', 'bad'],
   denied: ['云端不让写，已存在本机，请导出备份', 'bad'],
   full: ['云端空间已满，请导出备份', 'bad'],
+  login: ['登录过期，请重新登录', 'bad'],
+  removed: ['你已不在这个账本里', 'bad'],
 };
+
+// ---------- 服务器模式：账号、成员 ----------
+async function afterFirstSync() {
+  await loadMembers();
+  // 老板的新账本还空着：这台设备以前只存在本机的账，问一句要不要放进来
+  const old = (() => { try { return JSON.parse(localStorage.getItem('ledger.v1') || 'null'); } catch { return null; } })();
+  const moved = localStorage.getItem('ledger.v1.moved');
+  if (LEDGER.role === 'owner' && !hasData(mine) && hasData(old) && !moved) {
+    const n = (old.sales?.length || 0) + (old.purchases?.length || 0) + (old.receipts?.length || 0) + (old.payments?.length || 0);
+    const ans = await ask(`这台设备上有以前只存在本机的账（${n} 笔）。\n要放进「${LEDGER.name}」吗？放进去以后同事也能看到。`, '放进来', false, '不用');
+    if (ans !== null) localStorage.setItem('ledger.v1.moved', ans ? LEDGER.id : 'no');
+    if (ans) {
+      mine = hydrate(importState(mine, sanitize(old).state));
+      state = mine;
+      save();
+      toast('已放进账本，正在传到服务器');
+      return;
+    }
+  }
+  if (!hasData(mine) && LEDGER.role === 'owner') { demoMode = true; demoAuto = true; state = demoState(); recompute(); }
+}
+
+async function loadMembers() {
+  membersAt = Date.now();
+  try {
+    ({ members, former = [] } = await api(`/l/${LEDGER.id}/members`));
+    invites = PERMS.manage ? (await api(`/l/${LEDGER.id}/invites`)).invites : [];
+    render();
+    // 老板在别的设备上调了我的权限：重新打开一下，按钮跟着变
+    const mine0 = members.find((m) => m.id === ME.id);
+    if (mine0 && JSON.stringify([mine0.role, mine0.perms.write, mine0.perms.editOthers]) !== JSON.stringify([PERMS.role, PERMS.write, PERMS.editOthers])) {
+      if (await ask('你在这本账里的权限改了，重新打开一下就好。', '重新打开', false, '稍后')) location.replace(location.pathname);
+    }
+  } catch { /* 没网：成员列表下次再取 */ }
+}
+
+let goneAsked = false;
+async function gone(why) {
+  if (goneAsked) return;
+  goneAsked = true;
+  if (why === 'login') {
+    const n = pendingChanges(mine).length;
+    const ok = await ask(`登录过期了（可能在别的设备上改了密码，或者密码被重置了）。${n ? `\n还有 ${n} 笔没传上去，留在这台设备上，重新登录同一个账号后会接着传。` : ''}`, '重新登录', false, '稍后');
+    if (ok) { clearSession(); location.replace(location.pathname); } else goneAsked = false;
+  } else {
+    await ask(`你已经不在「${LEDGER.name}」里了（被老板移出了），看不到这本账了。`, '知道了', false, '关闭');
+    await store.drop();
+    saveSession({ ledgerId: null });
+    location.replace(location.pathname);
+  }
+}
 function syncPill() {
   if (demoMode) return '<span class="sync muted">示例，不保存</span>';
   const [t, c] = SYNC_TEXT[syncStatus] || SYNC_TEXT.local;
@@ -218,6 +316,18 @@ function render() {
   for (const t of ['home', 'trade', 'receipt', 'company', 'settings']) $(`#page-${t}`).hidden = t !== tab;
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   ({ home: renderHome, trade: renderTrade, receipt: renderCash, company: renderAccounts, settings: renderSettings })[tab]();
+  applyPerms($(`#page-${tab}`));
+}
+
+// 没权限记的：按钮藏掉；列表里点了会去记一笔的，变成只能看
+function applyPerms(root) {
+  if (!PERMS || demoMode) return;
+  root.querySelectorAll('[data-act]').forEach((el) => {
+    const k = ACT_KIND[el.dataset.act];
+    if (!k || can(k)) return;
+    if (el.tagName === 'BUTTON') el.hidden = true;
+    else { el.removeAttribute('data-act'); el.querySelector('.r .s:last-child')?.remove(); }
+  });
 }
 
 document.querySelector('.tabbar').innerHTML = [['home', '总览'], ['trade', '进销'], ['receipt', '收付款'], ['company', '账户'], ['settings', '设置']]
@@ -226,12 +336,14 @@ document.querySelector('.tabbar').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-tab]');
   if (!b) return;
   tab = b.dataset.tab;
+  if (SERVER && tab === 'settings') setTimeout(loadMembers); // 打开设置页时成员列表取新的
   render();
   window.scrollTo(0, 0);
 });
 
 function reminders() {
   const out = [];
+  if (PERMS && !PERMS.write.length && !demoMode) out.push(`<div class="readonly-bar">你在「${esc(LEDGER.name)}」里是「只看」：能看整本账，不能记也不能改。</div>`);
   for (const i of R.issues) out.push(`<div class="alert bad"><span>${esc(i)}</span></div>`);
   return demoBanner() + out.join('');
 }
@@ -245,7 +357,7 @@ function renderHome() {
   const oweUp = R.suppliers.filter((c) => c.outstanding > 0);
 
   $('#page-home').innerHTML = `
-    <header class="hdr"><div><h1>进销账</h1><p class="sub">上游进货 → 卖给下游 → 回款 → 扣税提现</p></div><span data-sync>${syncPill()}</span></header>
+    <header class="hdr"><div><h1>进销账</h1><p class="sub">${SERVER ? `${esc(LEDGER.name)} · ${esc(ME.name)}（${esc(ROLES[PERMS.role]?.label || '')}）` : '上游进货 → 卖给下游 → 回款 → 扣税提现'}</p></div><span data-sync>${syncPill()}</span></header>
     ${reminders()}
     <div class="card hero">
       <div class="hero-top">
@@ -305,7 +417,7 @@ function renderTrade() {
     const items = [...R.sales].sort(byDateDesc).map((s) => ({
       date: s.date, html: `
       <li class="item" data-edit="sale" data-id="${s.id}">
-        <div class="l"><div class="t">${esc(s.customer)}</div><div class="s">${esc(s.product)}${s.supplier ? `（${esc(s.supplier)}）` : ''} ${s.qty} × ${yy(s.price)}${s.lots?.length > 1 ? ` · 从 ${s.lots.length} 批出货` : ''} · 回清要扣税 ${y(s.taxFull)}${s.note ? ' · ' + esc(s.note) : ''}</div></div>
+        <div class="l"><div class="t">${esc(s.customer)}</div><div class="s">${esc(s.product)}${s.supplier ? `（${esc(s.supplier)}）` : ''} ${s.qty} × ${yy(s.price)}${s.lots?.length > 1 ? ` · 从 ${s.lots.length} 批出货` : ''} · 回清要扣税 ${y(s.taxFull)}${s.note ? ' · ' + esc(s.note) : ''}${byTag(s)}</div></div>
         <div class="r"><div class="amt num">${y(s.total)}</div>${salePill(s)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有销售记录</li>'}</ul></div>`;
@@ -313,7 +425,7 @@ function renderTrade() {
     const items = [...R.purchases].sort(byDateDesc).map((p) => ({
       date: p.date, html: `
       <li class="item" data-edit="purchase" data-id="${p.id}">
-        <div class="l"><div class="t">${esc(p.supplier)}</div><div class="s">${esc(p.product)} ${p.qty} × ${yy(p.price)} · ${p.remaining > 1e-9 ? (p.sold ? `已卖 ${+p.sold.toFixed(3)}，剩 ${+p.remaining.toFixed(3)} 件` : '还没卖') : '已卖完'}${p.note ? ' · ' + esc(p.note) : ''}</div></div>
+        <div class="l"><div class="t">${esc(p.supplier)}</div><div class="s">${esc(p.product)} ${p.qty} × ${yy(p.price)} · ${p.remaining > 1e-9 ? (p.sold ? `已卖 ${+p.sold.toFixed(3)}，剩 ${+p.remaining.toFixed(3)} 件` : '还没卖') : '已卖完'}${p.note ? ' · ' + esc(p.note) : ''}${byTag(p)}</div></div>
         <div class="r"><div class="amt num">${y(p.total)}</div>${purchasePill(p)}</div>
       </li>` }));
     body = `<div class="card"><ul class="list">${items.length ? groupByDate(items) : '<li class="empty">还没有进货记录</li>'}</ul></div>`;
@@ -458,7 +570,7 @@ function renderCash() {
         : `扣税 ${y(r.taxC)} · 算你的 ${y(r.mineC)}${r.unallocated ? ` · <span style="color:var(--warn)">${y(r.unallocated)} 没对上销售</span>` : ''}`;
       return { date: r0.date, html: `
         <li class="item" data-edit="receipt" data-id="${r0.id}">
-          <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${batchSummary(r0.allocations, R.salesById, 'saleId', RECEIPT_WORDS)}</div><div class="s">${sub}${r0.note ? ' · ' + esc(r0.note) : ''}</div></div>
+          <div class="l"><div class="t">${esc(r0.customer)} ${acctPill(r0.account)}</div><div class="s">${batchSummary(r0.allocations, R.salesById, 'saleId', RECEIPT_WORDS)}</div><div class="s">${sub}${r0.note ? ' · ' + esc(r0.note) : ''}${byTag(r0)}</div></div>
           <div class="r"><div class="amt num in">+${fmt(r.amountC)}</div><div class="s">到账</div></div>
         </li>` };
     });
@@ -479,7 +591,7 @@ function renderCash() {
       const extra = p.amountC > p.allocatedC ? `<div class="s" style="color:var(--warn)">${y(p.amountC - p.allocatedC)} 没分到货上</div>` : '';
       return { date: p0.date, html: `
         <li class="item" data-edit="payment" data-id="${p0.id}">
-          <div class="l"><div class="t">${esc(p0.supplier)} ${acctPill(p0.account)}</div><div class="s">${batchSummary(p0.allocations, R.purchasesById, 'purchaseId', PAYMENT_WORDS)}${p0.note ? ' · ' + esc(p0.note) : ''}</div>${extra}</div>
+          <div class="l"><div class="t">${esc(p0.supplier)} ${acctPill(p0.account)}</div><div class="s">${batchSummary(p0.allocations, R.purchasesById, 'purchaseId', PAYMENT_WORDS)}${p0.note ? ' · ' + esc(p0.note) : ''}${byTag(p0)}</div>${extra}</div>
           <div class="r"><div class="amt num">−${fmt(p.amountC)}</div><div class="s">打出</div></div>
         </li>` };
     });
@@ -556,17 +668,19 @@ function renderAccounts() {
 function renderSettings() {
   const s = R.settings;
   $('#page-settings').innerHTML = `
-    <header class="hdr"><div><h1>设置</h1><p class="sub">税率、备份</p></div><span data-sync>${syncPill()}</span></header>
+    <header class="hdr"><div><h1>设置</h1><p class="sub">${SERVER ? '账号、成员、税率、备份' : '税率、备份'}</p></div><span data-sync>${syncPill()}</span></header>
     ${demoBanner()}
+    ${SERVER ? teamCards() : ''}
+    ${installCard()}
     <div class="card">
       <h3>扣税怎么算</h3>
       <p class="small muted" style="margin-top:0">税 = 回款额 × 回款税点 + 差价（售价 − 进价）× 差价税率</p>
       <div class="two">
-        <div class="f"><label>回款税点（%）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="set-rev" value="${+(s.revenueRate * 100).toFixed(4)}"></div>
-        <div class="f"><label>差价税率（%）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="set-mar" value="${+(s.marginRate * 100).toFixed(4)}"></div>
+        <div class="f"><label>回款税点（%）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="set-rev" value="${+(s.revenueRate * 100).toFixed(4)}" ${can('settings') || demoMode ? '' : 'disabled'}></div>
+        <div class="f"><label>差价税率（%）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="set-mar" value="${+(s.marginRate * 100).toFixed(4)}" ${can('settings') || demoMode ? '' : 'disabled'}></div>
       </div>
       <div class="calc" id="set-eg"></div>
-      <p class="small muted" style="margin:0">改了税率，以前所有回款的扣税都会按新税率重算。如果中途税率变过，先导出备份再改。</p>
+      <p class="small muted" style="margin:0">${can('settings') || demoMode ? '改了税率，以前所有回款的扣税都会按新税率重算。如果中途税率变过，先导出备份再改。' : '税率只有老板和管理员能改。'}</p>
     </div>
     <div class="card">
       <h3>下拉单</h3>
@@ -575,21 +689,23 @@ function renderSettings() {
         const list = state.lists?.[k] || [];
         return `<div class="lst">
           <div class="lbl">${LIST_LABEL[k]} <span class="muted small">${list.length} 个</span></div>
-          <div class="tags">${list.length ? list.map((n) => `<span class="tag">${esc(n)}<button type="button" data-del-name="${k}" data-name="${esc(n)}" aria-label="从下拉单删掉 ${esc(n)}">×</button></span>`).join('') : '<span class="muted small">还没有</span>'}</div>
-          <div class="tag-add"><input class="inp sm" id="add-${k}" placeholder="新加一个${LIST_LABEL[k]}"><button type="button" class="btn sm" data-add-name="${k}">加入</button></div>
+          <div class="tags">${list.length ? list.map((n) => `<span class="tag">${esc(n)}${can('lists') || demoMode ? `<button type="button" data-del-name="${k}" data-name="${esc(n)}" aria-label="从下拉单删掉 ${esc(n)}">×</button>` : ''}</span>`).join('') : '<span class="muted small">还没有</span>'}</div>
+          ${can('lists') || demoMode ? `<div class="tag-add"><input class="inp sm" id="add-${k}" placeholder="新加一个${LIST_LABEL[k]}"><button type="button" class="btn sm" data-add-name="${k}">加入</button></div>` : ''}
         </div>`;
       }).join('')}
     </div>
     <div class="card">
       <h3>备份</h3>
-      <p class="small muted" style="margin-top:0">${store.cloud
+      <p class="small muted" style="margin-top:0">${SERVER
+        ? '账存在进销账服务器上，账本里的成员都能看到；每台设备上也有一份，没网也能看、能记，联网后自动同步。导出一份留底更安心。'
+        : store.cloud
         ? '账存在你 claude.ai 账号下的私有空间，只有你自己看得到；换手机、换电脑登录同一个账号也在。导出一份留底更安心。'
         : '数据只存在这台手机 / 电脑的浏览器里。清缓存或换设备前一定先导出。'}</p>
-      <div class="btn-row"><button class="btn" id="exp">导出 JSON</button><button class="btn" id="exp-csv">导出销售明细 CSV</button><label class="btn">导入 JSON<input type="file" accept="application/json" id="imp" hidden></label></div>
+      <div class="btn-row"><button class="btn" id="exp">导出 JSON</button><button class="btn" id="exp-csv">导出销售明细 CSV</button>${OWNER_ONLY() ? '<label class="btn">导入 JSON<input type="file" accept="application/json" id="imp" hidden></label>' : ''}</div>
     </div>
     <div class="card">
       <h3>示例 / 清空</h3>
-      <div class="btn-row">${demoMode ? '' : '<button class="btn" id="demo">看示例数据</button>'}<button class="btn danger" id="wipe">清空我的账</button></div>
+      <div class="btn-row">${demoMode ? '' : '<button class="btn" id="demo">看示例数据</button>'}${OWNER_ONLY() ? `<button class="btn danger" id="wipe">${SERVER ? '清空这本账' : '清空我的账'}</button>` : ''}</div>
       <p class="small muted" style="margin-bottom:0">看示例不会动你自己的账，看完点「回到我的账」。</p>
     </div>
     <div class="card explain">
@@ -619,7 +735,7 @@ function renderSettings() {
   $('#set-rev').onchange = $('#set-mar').onchange = () => {
     const rev = parseFloat($('#set-rev').value), mar = parseFloat($('#set-mar').value);
     if (!(rev >= 0 && rev < 100 && mar >= 0 && mar < 100)) return toast('税率填 0–100 之间的数');
-    state.settings = { ...state.settings, revenueRate: rev / 100, marginRate: mar / 100, _u: stamp() };
+    state.settings = touch({ ...state.settings, revenueRate: rev / 100, marginRate: mar / 100 });
     save();
     toast('税率已更新');
   };
@@ -638,13 +754,13 @@ function renderSettings() {
   }));
   $('#exp').onclick = () => download(`进销账-${today()}.json`, JSON.stringify(mine, null, 2));
   $('#exp-csv').onclick = exportCsv;
-  $('#imp').onchange = async (e) => {
+  if ($('#imp')) $('#imp').onchange = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
     try {
       const data = JSON.parse(await f.text());
       if (!Array.isArray(data.sales) || !Array.isArray(data.receipts)) throw new Error('格式不对');
-      if (hasData(mine) && !(await ask('导入会覆盖你现在的整本账（登录同一账号的其他设备也会跟着变），确定？', '覆盖导入', true))) return;
+      if (hasData(mine) && !(await ask(SERVER ? `导入会覆盖「${LEDGER.name}」整本账（所有成员都会跟着变），确定？` : '导入会覆盖你现在的整本账（登录同一账号的其他设备也会跟着变），确定？', '覆盖导入', true))) return;
       const { state: clean, dropped } = sanitize(data);
       mine = hydrate(importState(mine, clean));
       demoMode = false;
@@ -656,8 +772,11 @@ function renderSettings() {
     e.target.value = '';
   };
   if ($('#demo')) $('#demo').onclick = enterDemo;
-  $('#wipe').onclick = async () => {
-    if (!(await ask('清空你自己的整本账？登录同一账号的其他设备也会跟着清空。清空前建议先导出备份。', '清空', true))) return;
+  if (SERVER) wireTeam();
+  if ($('#install')) $('#install').onclick = async () => { installEvt?.prompt(); installEvt = null; };
+  if ($('#wipe')) $('#wipe').onclick = async () => {
+    const msg = SERVER ? `清空「${LEDGER.name}」整本账？账本里所有成员都会跟着清空。清空前建议先导出备份。` : '清空你自己的整本账？登录同一账号的其他设备也会跟着清空。清空前建议先导出备份。';
+    if (!(await ask(msg, '清空', true))) return;
     mine = wipeState(mine);
     demoMode = false;
     demoAuto = false;
@@ -665,6 +784,248 @@ function renderSettings() {
     save();
     toast('已清空');
   };
+}
+
+// 导入、清空会动整本账：服务器上的账本只有老板能做
+const OWNER_ONLY = () => demoMode || !SERVER || LEDGER.role === 'owner';
+
+// ---------- 装到手机桌面 ----------
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (tab === 'settings') render(); });
+function installCard() {
+  if (env.mode === 'claude' || matchMedia('(display-mode: standalone)').matches || navigator.standalone) return '';
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const wx = /micromessenger/i.test(navigator.userAgent);
+  return `<div class="card"><h3>装到手机桌面</h3>
+    <p class="small muted" style="margin-top:0">装上以后像 app 一样从桌面图标打开，没网也能看、能记。</p>
+    ${installEvt ? '<button class="btn primary" id="install">装到桌面</button>'
+    : `<p class="small" style="margin:0">${wx ? '在微信里打开的：先点右上角「…」，选「在浏览器打开」，再按下面的做。<br>' : ''}${ios ? 'iPhone：用 Safari 打开，点底部的「分享」按钮，选「添加到主屏幕」。' : '安卓：在浏览器菜单里选「添加到主屏幕」或「安装应用」。'}</p>`}</div>`;
+}
+
+// ---------- 账号、成员（服务器模式） ----------
+const fmtDay = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}月${d.getDate()}日`; };
+const fmtTime = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const permSummary = (p) => (p.write.length >= RECORD_KINDS.length ? '全部能记' : p.write.length ? `能记${p.write.map((k) => KIND_LABEL[k]).join('、')}` : '只能看')
+  + (p.write.length && !p.editOthers ? '，只改自己记的' : '');
+const canManage = (m) => PERMS.manage && m.id !== ME.id && m.role !== 'owner' && (m.role !== 'admin' || LEDGER.role === 'owner');
+const reload = () => location.replace(location.pathname);
+
+function teamCards() {
+  const ledgers = env.me.ledgers;
+  const isOwner = LEDGER.role === 'owner';
+  return `
+    <div class="card">
+      <h3>账号</h3>
+      <div class="who"><div><div class="t">${esc(ME.name)}</div><div class="small muted">${esc(ME.phone)} · 在「${esc(LEDGER.name)}」里是${esc(ROLES[PERMS.role]?.label || '')}</div></div></div>
+      ${ledgers.length > 1 ? `<div class="f" style="margin:10px 0 0"><label for="sw-ledger">切换账本</label><select class="inp" id="sw-ledger">${ledgers.map((l) => `<option value="${esc(l.id)}" ${l.id === LEDGER.id ? 'selected' : ''}>${esc(l.name)}（${esc(l.roleLabel)}）</option>`).join('')}</select></div>` : ''}
+      <div class="btn-row" style="margin-top:10px"><button class="btn" id="pw-change">改密码</button><button class="btn" id="new-ledger">新建一本账</button>${isOwner ? '' : '<button class="btn" id="leave">退出这本账</button>'}<button class="btn" id="logout">退出登录</button></div>
+    </div>
+    <div class="card">
+      <h3>成员 <span class="muted">${members.length || LEDGER.memberCount} 人</span></h3>
+      <ul class="list">${members.map((m) => `<li class="item" ${canManage(m) ? `data-member="${esc(m.id)}"` : ''}>
+        <div class="l"><div class="t">${esc(m.name)}${m.id === ME.id ? '（我）' : ''}</div><div class="s">${esc(m.roleLabel)}${m.perms.custom ? '（单独调过）' : ''} · ${esc(permSummary(m.perms))} · ${esc(m.phone)}</div></div>
+        ${canManage(m) ? '<div class="r"><div class="s">改权限</div></div>' : ''}</li>`).join('') || '<li class="empty">没网，成员列表等联网后再取</li>'}</ul>
+      ${PERMS.manage ? `
+        ${invites.length ? `<div class="lbl" style="margin-top:12px">还没用的邀请码</div><ul class="list">${invites.map((i) => `<li class="item">
+          <div class="l"><div class="t num">${esc(i.code)}</div><div class="s">${esc(i.roleLabel)} · ${esc(i.inviter)}发的 · ${fmtDay(i.expiresAt)}前有效</div></div>
+          <div class="r"><button class="btn sm" data-revoke="${esc(i.code)}">作废</button></div></li>`).join('')}</ul>` : ''}
+        <div class="btn-row" style="margin-top:10px"><button class="btn primary" id="invite">邀请同事</button><button class="btn" id="oplog">操作记录</button><button class="btn" id="rename">改账本名</button></div>` : ''}
+      <p class="small muted" style="margin-bottom:0">现在每个成员都能看到整本账；身份决定能记、能改哪些单据，服务器上也会检查。</p>
+    </div>`;
+}
+
+function wireTeam() {
+  const page = $('#page-settings');
+  if ($('#sw-ledger')) $('#sw-ledger').onchange = (e) => { saveSession({ ledgerId: e.target.value }); reload(); };
+  $('#pw-change').onclick = passwordForm;
+  $('#new-ledger').onclick = () => nameForm('新建一本账', `${ME.name}的第二本账`, '建好后切到这本账，可以再邀请别的同事。', async (name) => {
+    const r = await api('/ledgers', { method: 'POST', body: { name } });
+    saveSession({ me: r, ledgerId: r.created });
+    reload();
+  });
+  if ($('#leave')) $('#leave').onclick = async () => {
+    if (!(await ask(`退出「${LEDGER.name}」？退出后就看不到这本账了，要老板重新邀请才能回来。`, '退出', true))) return;
+    try {
+      await api(`/l/${LEDGER.id}/members/${ME.id}`, { method: 'DELETE' });
+      await store.drop();
+      saveSession({ ledgerId: null });
+      reload();
+    } catch (e) { toast(e.message); }
+  };
+  $('#logout').onclick = async () => {
+    const n = pendingChanges(mine).length;
+    if (n && !(await ask(`还有 ${n} 笔没传上去（可能没网）。现在退出，这几笔留在这台设备上，下次登录同一个账号会接着传。`, '仍然退出', true, '先不退'))) return;
+    await api('/auth/logout', { method: 'POST' }).catch(() => {});
+    if (!n) await store.drop(); // 都传上去了：这台设备上的账清掉，别人拿到手机也看不到
+    clearSession();
+    reload();
+  };
+  page.querySelectorAll('[data-member]').forEach((el) => (el.onclick = () => memberForm(members.find((m) => m.id === el.dataset.member))));
+  page.querySelectorAll('[data-revoke]').forEach((b) => (b.onclick = async () => {
+    try { await api(`/l/${LEDGER.id}/invites/${encodeURIComponent(b.dataset.revoke)}`, { method: 'DELETE' }); toast('已作废'); loadMembers(); } catch (e) { toast(e.message); }
+  }));
+  if ($('#invite')) $('#invite').onclick = inviteForm;
+  if ($('#oplog')) $('#oplog').onclick = logSheet;
+  if ($('#rename')) $('#rename').onclick = () => nameForm('改账本名', LEDGER.name, '成员看到的账本名字。', async (name) => {
+    await api(`/l/${LEDGER.id}`, { method: 'PATCH', body: { name } });
+    saveSession({ me: { ...env.me, ledgers: env.me.ledgers.map((l) => (l.id === LEDGER.id ? { ...l, name } : l)) } });
+    reload();
+  });
+}
+
+function nameForm(title, value, tip, go) {
+  openSheet(title, `<div class="f"><label for="nf-name">名字</label><input class="inp" id="nf-name" maxlength="30" value="${esc(value)}"></div>
+    <p class="small muted">${esc(tip)}</p><button class="btn primary block" id="nf-go">确定</button>`, (root) => {
+    $('#nf-go', root).onclick = async (e) => {
+      const name = $('#nf-name', root).value.trim();
+      if (!name) return toast('名字要填');
+      e.target.disabled = true;
+      try { await go(name); } catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+  });
+}
+
+function passwordForm() {
+  openSheet('改密码', `
+    <div class="f"><label for="pw-old">原来的密码</label><input class="inp" id="pw-old" type="password" autocomplete="current-password"></div>
+    <div class="f"><label for="pw-new">新密码</label><input class="inp" id="pw-new" type="password" autocomplete="new-password" placeholder="至少 6 位"></div>
+    <div class="f"><label for="pw-new2">再输一次新密码</label><input class="inp" id="pw-new2" type="password" autocomplete="new-password"></div>
+    <p class="small muted">改完以后，别的手机、电脑上要用新密码重新登录。</p>
+    <button class="btn primary block" id="pw-go">改密码</button>`, (root) => {
+    $('#pw-go', root).onclick = async (e) => {
+      const pw = $('#pw-new', root).value;
+      if (pw.length < 6) return toast('新密码至少 6 位');
+      if (pw !== $('#pw-new2', root).value) return toast('两次输的新密码不一样');
+      e.target.disabled = true;
+      try {
+        await api('/auth/password', { method: 'POST', body: { old: $('#pw-old', root).value, password: pw } });
+        closeSheet();
+        toast('密码改好了');
+      } catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+  });
+}
+
+const rolePick = (name, roles, checked) => `<div class="role-pick">${roles.map((r) => `<label><input type="radio" name="${name}" value="${r}" ${r === checked ? 'checked' : ''}>
+  <div><b>${ROLES[r].label}</b><span>${ROLES[r].note}</span></div></label>`).join('')}</div>`;
+const assignable = () => ROLE_ORDER.filter((r) => r !== 'owner' && (r !== 'admin' || LEDGER.role === 'owner'));
+
+function copyText(text, fallbackEl) {
+  const done = () => toast('已复制，发给同事就行');
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).then(done, () => selectEl(fallbackEl));
+  selectEl(fallbackEl);
+}
+function selectEl(el) {
+  if (!el) return;
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+  toast('已选中，长按复制');
+}
+
+function inviteForm() {
+  openSheet('邀请同事', `
+    <p class="small muted" style="margin-top:0">选好身份，生成邀请链接发给同事。同事打开链接注册（已有账号就登录）就进了这本账。7 天内有效，只能用一次。</p>
+    ${rolePick('inv-role', assignable(), 'clerk')}
+    <button class="btn primary block" id="inv-go">生成邀请链接</button>
+    <div id="inv-out"></div>`, (root) => {
+    $('#inv-go', root).onclick = async (e) => {
+      e.target.disabled = true;
+      const role = root.querySelector('[name=inv-role]:checked').value;
+      try {
+        const r = await api(`/l/${LEDGER.id}/invites`, { method: 'POST', body: { role } });
+        const link = `${location.origin}${location.pathname}?invite=${r.code}`;
+        $('#inv-out', root).innerHTML = `<div class="code-box">${esc(r.code)}</div><div class="link-box" id="inv-link">${esc(link)}</div>
+          <div class="btn-row" style="margin-top:8px"><button class="btn primary" id="inv-copy">复制链接</button>${navigator.share ? '<button class="btn" id="inv-share">发给同事</button>' : ''}</div>
+          <p class="small muted">身份：${esc(ROLES[role].label)}。同事注册时也可以手动填上面的邀请码。</p>`;
+        e.target.hidden = true;
+        root.querySelectorAll('[name=inv-role]').forEach((x) => (x.disabled = true));
+        sheetDirty = false;
+        const text = `${ME.name} 邀请你一起记「${LEDGER.name}」：${link}`;
+        $('#inv-copy', root).onclick = () => copyText(text, $('#inv-link', root));
+        if ($('#inv-share', root)) $('#inv-share', root).onclick = () => navigator.share({ title: '进销账邀请', text, url: link }).catch(() => {});
+        loadMembers();
+      } catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+  });
+}
+
+function memberForm(m) {
+  if (!m) return;
+  const kinds = RECORD_KINDS.filter((k) => k !== 'settings');
+  openSheet(`${m.name}的权限`, `
+    <p class="small muted" style="margin-top:0">${esc(m.phone)} · ${fmtDay(m.joinedAt)}加入</p>
+    <div class="lbl">身份</div>
+    ${rolePick('m-role', assignable(), m.role)}
+    <div id="m-custom">
+      <div class="lbl">能记哪些 <span class="tip">可以在身份的基础上单独调</span></div>
+      <div class="perm-grid">${kinds.map((k) => `<label><input type="checkbox" data-k="${k}">${KIND_LABEL[k]}</label>`).join('')}
+        <label><input type="checkbox" id="m-others">能改别人记的</label></div>
+    </div>
+    <button class="btn primary block" id="m-save">保存</button>
+    <div class="btn-row" style="margin-top:8px"><button class="btn" id="m-reset">重置密码</button><button class="btn danger" id="m-remove">移出账本</button></div>
+    <p class="small muted">保存后服务器上马上生效；对方重新打开以后，页面上的按钮也跟着变。</p>`, (root) => {
+    const role = () => root.querySelector('[name=m-role]:checked').value;
+    const fill = (p) => {
+      root.querySelectorAll('[data-k]').forEach((c) => (c.checked = p.write.includes(c.dataset.k)));
+      $('#m-others', root).checked = p.editOthers;
+      $('#m-custom', root).hidden = role() === 'admin';
+    };
+    fill(m.perms);
+    root.querySelectorAll('[name=m-role]').forEach((r) => (r.onchange = () => fill(effectivePerms(role()))));
+    $('#m-save', root).onclick = async (e) => {
+      const r = role();
+      const write = [...root.querySelectorAll('[data-k]:checked')].map((c) => c.dataset.k);
+      const editOthers = $('#m-others', root).checked;
+      const preset = effectivePerms(r);
+      const same = preset.write.filter((k) => k !== 'settings').sort().join() === [...write].sort().join() && preset.editOthers === editOthers;
+      e.target.disabled = true;
+      try {
+        await api(`/l/${LEDGER.id}/members/${m.id}`, { method: 'PATCH', body: { role: r, perms: r === 'admin' || same ? null : { write, editOthers } } });
+        closeSheet();
+        toast(`${m.name}的权限已改`);
+        loadMembers();
+      } catch (err) { toast(err.message); e.target.disabled = false; }
+    };
+    $('#m-reset', root).onclick = async () => {
+      if (!(await ask(`给${m.name}重置密码？他现在登录着的设备都要重新登录。`, '重置'))) return;
+      try {
+        const { password } = await api(`/l/${LEDGER.id}/members/${m.id}/reset-password`, { method: 'POST' });
+        await ask(`${m.name}的临时密码：${password}\n告诉他用这个登录，登录后在「设置 → 账号 → 改密码」里改掉。`, '知道了', false, '关闭');
+      } catch (err) { toast(err.message); }
+    };
+    $('#m-remove', root).onclick = async () => {
+      if (!(await ask(`把${m.name}移出「${LEDGER.name}」？他记过的账留着，但他再也看不到这本账。`, '移出', true))) return;
+      try {
+        await api(`/l/${LEDGER.id}/members/${m.id}`, { method: 'DELETE' });
+        closeSheet();
+        toast(`已把${m.name}移出`);
+        loadMembers();
+      } catch (err) { toast(err.message); }
+    };
+  });
+}
+
+const LOG_ACTION = { create: '记了一笔', update: '改了一笔', delete: '删了一笔' };
+function logSheet() {
+  openSheet('操作记录', '<p class="small muted" style="margin-top:0">谁在什么时候记了、改了、删了哪一笔。</p><ul class="list log-list" id="log-list"><li class="empty">正在取…</li></ul><button class="btn block" id="log-more" hidden>再看更早的</button>', (root) => {
+    let before = '';
+    const list = $('#log-list', root);
+    const more = async () => {
+      try {
+        const { log } = await api(`/l/${LEDGER.id}/log?limit=50${before ? `&before=${before}` : ''}`);
+        if (!before) list.innerHTML = '';
+        list.insertAdjacentHTML('beforeend', log.map((g) => `<li class="item"><div class="l"><div class="t">${esc(g.user || '已移出的成员')} ${LOG_ACTION[g.action] || g.action}${KIND_LABEL[g.kind] || g.kind}</div><div class="s">${esc(g.summary || '')}</div></div>
+          <div class="r"><div class="s num">${fmtTime(g.at)}</div></div></li>`).join('') || (before ? '' : '<li class="empty">还没有记录</li>'));
+        before = log.at(-1)?.id || before;
+        $('#log-more', root).hidden = log.length < 50;
+      } catch (e) { list.innerHTML = `<li class="empty">${esc(e.message)}</li>`; }
+    };
+    $('#log-more', root).onclick = more;
+    more();
+  });
 }
 
 // claude.ai 里走平台的保存对话框；自己部署时用普通下载链接
@@ -703,18 +1064,24 @@ document.getElementById('app').addEventListener('click', (e) => {
   const act = e.target.closest('[data-act]');
   if (act) {
     const a = act.dataset.act;
+    if (!demoMode && ACT_KIND[a] && !can(ACT_KIND[a])) return toast(`你在这本账里是「${ROLES[PERMS.role]?.label}」，不能记${KIND_LABEL[ACT_KIND[a]]}`);
     if (demoMode && !demoTry && RECORD_ACTS.has(a)) return demoAsk(a, { ...act.dataset });
     return runAct(a, act.dataset);
   }
   const ed = e.target.closest('[data-edit]');
   if (ed) {
     const { edit, id } = ed.dataset;
-    if (edit === 'sale') return saleForm(state.sales.find((x) => x.id === id));
-    if (edit === 'purchase') return purchaseForm(state.purchases.find((x) => x.id === id));
-    if (edit === 'receipt') return receiptForm(state.receipts.find((x) => x.id === id));
-    if (edit === 'payment') return paymentForm((state.payments || []).find((x) => x.id === id));
+    const kind = EDIT_KIND[edit];
+    const rec = edit === 'price' ? null : (state[kind] || []).find((x) => x.id === id);
+    if (!demoMode && !canEdit(kind, rec)) {
+      return toast(can(kind) ? `这笔是${memberName(rec?._by) || '别人'}记的，你只能改自己记的` : `你在这本账里是「${ROLES[PERMS.role]?.label}」，只能看不能改${KIND_LABEL[kind]}`);
+    }
+    if (edit === 'sale') return saleForm(rec);
+    if (edit === 'purchase') return purchaseForm(rec);
+    if (edit === 'receipt') return receiptForm(rec);
+    if (edit === 'payment') return paymentForm(rec);
     if (edit === 'price') return priceForm(ed.dataset.sup, ed.dataset.prod);
-    if (edit === 'withdraw') return withdrawForm(state.withdrawals.find((x) => x.id === id));
+    if (edit === 'withdraw') return withdrawForm(rec);
   }
 });
 
@@ -943,7 +1310,7 @@ function saleForm(rec) {
     const sources = [supplier];
     const prices = new Map(sources.map((sup) => {
       const lp = listPrice(state, sup, product);
-      return [sup, { list: lp, price: rec && sup === recSupplier ? rec.price : lp, save: null }];
+      return [sup, { list: lp, price: rec && sup === recSupplier ? rec.price : lp, save: can('prices') ? null : false }]; // 不能改价目表的：只按这笔
     }));
     const g = { key: keyOf(supplier, product), supplier, product, batches, sources, prices, lots: new Map(), open: Boolean(rec) };
     if (rec) for (const l of old?.lots || []) g.lots.set(l.purchaseId, fmtQ(l.qty));
@@ -1083,7 +1450,8 @@ function saleForm(rec) {
         row.querySelector('[data-price]').classList.toggle('need', need);
         row.classList.toggle('need', need);
         if (need) { note.innerHTML = '<p class="hint warn-text">还没填售价，填了才能保存</p>'; return; }
-        if (p.list == null) note.innerHTML = v != null && v > 0
+        if (!can('prices')) note.innerHTML = p.list != null && v != null && v !== p.list ? `<p class="hint">价目表里是 ¥${p.list}，这笔按 ¥${v} 记（价目表只有能管价目表的人能改）</p>` : '';
+        else if (p.list == null) note.innerHTML = v != null && v > 0
           ? `<label class="picker-add"><input type="checkbox" data-psave ${p.save !== false ? 'checked' : ''}><span>把 ¥${v} 记进价目表，下次自动带出</span></label>` : '<p class="hint">价目表里还没有，填一次就能记进去</p>';
         else if (v != null && v !== p.list) note.innerHTML = `<div class="price-changed" role="status">
             <div><b>改价了</b>：价目表里是 ¥${p.list}，这笔填的是 ¥${v}${p.save == null ? '，要更新价目表吗？' : ''}</div>
@@ -1201,7 +1569,7 @@ function saleForm(rec) {
       } else if (e.target.matches('[data-price]')) {
         const p = g.prices.get(e.target.closest('.price-src').dataset.sup);
         p.price = e.target.value === '' ? null : Number(e.target.value);
-        if (p.list != null) p.save = null; // 价格变了，「只这笔 / 更新价目表」要重新选
+        if (p.list != null) p.save = can('prices') ? null : false; // 价格变了，「只这笔 / 更新价目表」要重新选
       } else if (e.target.matches('[data-psave]')) {
         g.prices.get(e.target.closest('.price-src').dataset.sup).save = e.target.checked;
         return;

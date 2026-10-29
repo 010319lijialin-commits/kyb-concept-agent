@@ -335,3 +335,33 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .price-changed .btn { background: var(--surface); color: var(--text); border-color: var(--border); white-space: normal; text-align: left; }
 .price-changed .btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 .ask-body p { line-height: 1.6; }
+
+/* ---------- 登录 / 注册 ---------- */
+.auth { max-width: 420px; margin: 0 auto; padding: calc(28px + env(safe-area-inset-top)) 16px 32px; }
+.auth-hd { text-align: center; margin-bottom: 18px; }
+.auth-hd h1 { margin: 10px 0 0; font-size: 22px; }
+.auth-logo { width: 56px; height: 56px; margin: 0 auto; border-radius: 14px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 28px; font-weight: 700; }
+.auth-card .seg { margin-bottom: 14px; }
+.auth-err { color: var(--danger); font-size: 13px; min-height: 1em; margin: 4px 0 8px; }
+.auth-note { margin: 10px 0 0; }
+.auth-invite { background: var(--accent-soft); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; font-size: 14px; line-height: 1.6; }
+.auth-invite span { color: var(--muted); font-size: 13px; }
+.auth-invite.bad { background: var(--surface-2); color: var(--danger); }
+
+/* ---------- 成员 / 权限 ---------- */
+.who { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.who .t { font-weight: 600; }
+.role-pick { display: grid; gap: 8px; margin-bottom: 12px; }
+.role-pick label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+.role-pick label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.role-pick input { margin-top: 3px; accent-color: var(--accent); }
+.role-pick b { display: block; font-size: 14px; }
+.role-pick span { color: var(--muted); font-size: 12px; }
+.perm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 4px 0 12px; font-size: 14px; }
+.perm-grid label { display: flex; gap: 6px; align-items: center; }
+.perm-grid input { accent-color: var(--accent); }
+.code-box { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 24px; letter-spacing: 3px; text-align: center; padding: 12px; background: var(--surface-2); border-radius: 10px; margin: 8px 0; user-select: all; }
+.link-box { font-size: 12px; word-break: break-all; color: var(--muted); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; user-select: all; }
+.log-list .item .s { white-space: normal; }
+.by { color: var(--muted); font-size: 11px; }
+.readonly-bar { background: var(--surface-2); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }

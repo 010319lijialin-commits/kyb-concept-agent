@@ -35,7 +35,8 @@ export function emptyState() {
 let lastStamp = 0;
 export const stamp = () => (lastStamp = Math.max(Date.now(), lastStamp + 1)); // 同一毫秒里也严格递增
 export const COLLECTIONS = ['purchases', 'sales', 'receipts', 'payments', 'withdrawals'];
-export function touch(rec) { rec._u = stamp(); return rec; }
+// 改过的一笔：盖上修改时间，去掉服务器版本号（_s，见 sync.js），表示「本机改了还没传上去」
+export function touch(rec) { rec._u = stamp(); delete rec._s; return rec; }
 export function tomb(state, key) { (state.deleted ||= {})[key] = stamp(); }
 const priceKey = (p) => `${p.supplier}\u0001${p.product}`;
 
@@ -83,9 +84,11 @@ export function wipeState(s) {
 export function importState(current, data) {
   const out = wipeState(current);
   const t = stamp();
-  for (const c of COLLECTIONS) out[c] = (data[c] || []).map((r) => ({ ...r, _u: t }));
-  out.prices = (data.prices || []).map((p) => ({ ...p, _u: t }));
-  out.settings = { ...(data.settings || current.settings), _u: t };
+  // 备份里带的服务器版本号、记账人不要：导入的每一笔都算本机新记的
+  const fresh = ({ _s, _by, _t, ...r }) => ({ ...r, _u: t });
+  for (const c of COLLECTIONS) out[c] = (data[c] || []).map(fresh);
+  out.prices = (data.prices || []).map(fresh);
+  out.settings = fresh(data.settings || current.settings);
   out.lists = data.lists || seedLists(out);
   for (const k of LIST_KEYS) for (const n of out.lists[k] || []) out.listU[`${k}:${n}`] = t;
   return out;
@@ -162,6 +165,7 @@ export function removeFromList(state, key, name) {
   const list = state.lists?.[key] || [];
   const i = list.indexOf(name);
   if (i >= 0) list.splice(i, 1);
+  if (state.listU) delete state.listU[`${key}:${name}`];
   tomb(state, `list:${key}:${name}`);
 }
 
