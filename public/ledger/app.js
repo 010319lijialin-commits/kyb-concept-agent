@@ -11,7 +11,7 @@ import { createStore } from './store.js';
 import { env } from './env.js';
 import { createServerStore, api, saveSession, clearSession } from './remote.js';
 import { pendingChanges } from './sync.js';
-import { ROLES, ROLE_ORDER, RECORD_KINDS, KIND_LABEL, effectivePerms, canWrite, canEditRecord, ACT_KIND, EDIT_KIND } from './roles.js';
+import { ROLES, ROLE_ORDER, KIND_LABEL, canWrite, canEditRecord, ACT_KIND, EDIT_KIND } from './roles.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,6 +31,8 @@ const SERVER = env.mode === 'server';
 const ME = env.me?.user || null;
 const LEDGER = env.ledger || null;
 const PERMS = SERVER ? LEDGER.perms : null; // null = 不分权限（只有自己用）
+// 只记收付款的人：服务器只发他自己记的回款、付款，页面也只有「收付款」和「设置」两页
+const OWN = PERMS?.view === 'own';
 const can = (kind) => canWrite(PERMS, kind);
 const canEdit = (kind, rec) => canEditRecord(PERMS, kind, rec?._by, ME?.id);
 let members = []; // 这本账的成员，用来显示每笔是谁记的
@@ -88,7 +90,7 @@ let demoMode = !SERVER && !hasData(mine);
 let demoAuto = demoMode; // 是不是一打开、账还空着时自动进的示例（自己点「看示例」的不算）
 let state = demoMode ? demoState() : mine;
 let R = compute(state);
-let tab = 'home';
+let tab = OWN ? 'receipt' : 'home';
 // 各页里的分段切换：进销（销售/进货/库存）、收付款（回款/付款）、账户（公司/个人）
 const seg = { trade: 'sales', cash: 'in', acct: 'company' };
 
@@ -315,7 +317,8 @@ const acctPill = (a) => (a === ACCOUNT.PERSONAL ? '<span class="pill personal">�
 function render() {
   for (const t of ['home', 'trade', 'receipt', 'company', 'settings']) $(`#page-${t}`).hidden = t !== tab;
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  ({ home: renderHome, trade: renderTrade, receipt: renderCash, company: renderAccounts, settings: renderSettings })[tab]();
+  if (OWN) (tab === 'settings' ? renderSettingsOwn : renderMine)();
+  else ({ home: renderHome, trade: renderTrade, receipt: renderCash, company: renderAccounts, settings: renderSettings })[tab]();
   applyPerms($(`#page-${tab}`));
 }
 
@@ -330,7 +333,7 @@ function applyPerms(root) {
   });
 }
 
-document.querySelector('.tabbar').innerHTML = [['home', '总览'], ['trade', '进销'], ['receipt', '收付款'], ['company', '账户'], ['settings', '设置']]
+document.querySelector('.tabbar').innerHTML = (OWN ? [['receipt', '收付款'], ['settings', '设置']] : [['home', '总览'], ['trade', '进销'], ['receipt', '收付款'], ['company', '账户'], ['settings', '设置']])
   .map(([k, l]) => `<button data-tab="${k}">${icon(k)}<span>${l}</span></button>`).join('');
 document.querySelector('.tabbar').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-tab]');
@@ -343,7 +346,6 @@ document.querySelector('.tabbar').addEventListener('click', (e) => {
 
 function reminders() {
   const out = [];
-  if (PERMS && !PERMS.write.length && !demoMode) out.push(`<div class="readonly-bar">你在「${esc(LEDGER.name)}」里是「只看」：能看整本账，不能记也不能改。</div>`);
   for (const i of R.issues) out.push(`<div class="alert bad"><span>${esc(i)}</span></div>`);
   return demoBanner() + out.join('');
 }
@@ -680,7 +682,7 @@ function renderSettings() {
         <div class="f"><label>差价税率（%）</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="set-mar" value="${+(s.marginRate * 100).toFixed(4)}" ${can('settings') || demoMode ? '' : 'disabled'}></div>
       </div>
       <div class="calc" id="set-eg"></div>
-      <p class="small muted" style="margin:0">${can('settings') || demoMode ? '改了税率，以前所有回款的扣税都会按新税率重算。如果中途税率变过，先导出备份再改。' : '税率只有老板和管理员能改。'}</p>
+      <p class="small muted" style="margin:0">${can('settings') || demoMode ? '改了税率，以前所有回款的扣税都会按新税率重算。如果中途税率变过，先导出备份再改。' : '税率只有全部权限的人能改。'}</p>
     </div>
     <div class="card">
       <h3>下拉单</h3>
@@ -805,12 +807,14 @@ function installCard() {
 // ---------- 账号、成员（服务器模式） ----------
 const fmtDay = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}月${d.getDate()}日`; };
 const fmtTime = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-const permSummary = (p) => (p.write.length >= RECORD_KINDS.length ? '全部能记' : p.write.length ? `能记${p.write.map((k) => KIND_LABEL[k]).join('、')}` : '只能看')
-  + (p.write.length && !p.editOthers ? '，只改自己记的' : '');
+const permSummary = (p) => (p.view === 'own' ? '只能记回款、付上游，只看自己记的' : '什么都能看、能记、能改');
 const canManage = (m) => PERMS.manage && m.id !== ME.id && m.role !== 'owner' && (m.role !== 'admin' || LEDGER.role === 'owner');
 const reload = () => location.replace(location.pathname);
 
 function teamCards() {
+  return accountCard() + membersCard();
+}
+function accountCard() {
   const ledgers = env.me.ledgers;
   const isOwner = LEDGER.role === 'owner';
   return `
@@ -819,7 +823,10 @@ function teamCards() {
       <div class="who"><div><div class="t">${esc(ME.name)}</div><div class="small muted">${esc(ME.phone)} · 在「${esc(LEDGER.name)}」里是${esc(ROLES[PERMS.role]?.label || '')}</div></div></div>
       ${ledgers.length > 1 ? `<div class="f" style="margin:10px 0 0"><label for="sw-ledger">切换账本</label><select class="inp" id="sw-ledger">${ledgers.map((l) => `<option value="${esc(l.id)}" ${l.id === LEDGER.id ? 'selected' : ''}>${esc(l.name)}（${esc(l.roleLabel)}）</option>`).join('')}</select></div>` : ''}
       <div class="btn-row" style="margin-top:10px"><button class="btn" id="pw-change">改密码</button><button class="btn" id="new-ledger">新建一本账</button>${isOwner ? '' : '<button class="btn" id="leave">退出这本账</button>'}<button class="btn" id="logout">退出登录</button></div>
-    </div>
+    </div>`;
+}
+function membersCard() {
+  return `
     <div class="card">
       <h3>成员 <span class="muted">${members.length || LEDGER.memberCount} 人</span></h3>
       <ul class="list">${members.map((m) => `<li class="item" ${canManage(m) ? `data-member="${esc(m.id)}"` : ''}>
@@ -830,13 +837,14 @@ function teamCards() {
           <div class="l"><div class="t num">${esc(i.code)}</div><div class="s">${esc(i.roleLabel)} · ${esc(i.inviter)}发的 · ${fmtDay(i.expiresAt)}前有效</div></div>
           <div class="r"><button class="btn sm" data-revoke="${esc(i.code)}">作废</button></div></li>`).join('')}</ul>` : ''}
         <div class="btn-row" style="margin-top:10px"><button class="btn primary" id="invite">邀请同事</button><button class="btn" id="oplog">操作记录</button><button class="btn" id="rename">改账本名</button></div>` : ''}
-      <p class="small muted" style="margin-bottom:0">现在每个成员都能看到整本账；身份决定能记、能改哪些单据，服务器上也会检查。</p>
+      <p class="small muted" style="margin-bottom:0">「全部权限」什么都能看、能记、能改；「只记收付款」只能记回款和付上游，只看得到自己记的。服务器只把能看的发给他。</p>
     </div>`;
 }
 
 function wireTeam() {
   const page = $('#page-settings');
   if ($('#sw-ledger')) $('#sw-ledger').onchange = (e) => { saveSession({ ledgerId: e.target.value }); reload(); };
+  if (!$('#pw-change')) return;
   $('#pw-change').onclick = passwordForm;
   $('#new-ledger').onclick = () => nameForm('新建一本账', `${ME.name}的第二本账`, '建好后切到这本账，可以再邀请别的同事。', async (name) => {
     const r = await api('/ledgers', { method: 'POST', body: { name } });
@@ -865,6 +873,7 @@ function wireTeam() {
     try { await api(`/l/${LEDGER.id}/invites/${encodeURIComponent(b.dataset.revoke)}`, { method: 'DELETE' }); toast('已作废'); loadMembers(); } catch (e) { toast(e.message); }
   }));
   if ($('#invite')) $('#invite').onclick = inviteForm;
+  if (OWN) return;
   if ($('#oplog')) $('#oplog').onclick = logSheet;
   if ($('#rename')) $('#rename').onclick = () => nameForm('改账本名', LEDGER.name, '成员看到的账本名字。', async (name) => {
     await api(`/l/${LEDGER.id}`, { method: 'PATCH', body: { name } });
@@ -928,7 +937,7 @@ function selectEl(el) {
 function inviteForm() {
   openSheet('邀请同事', `
     <p class="small muted" style="margin-top:0">选好身份，生成邀请链接发给同事。同事打开链接注册（已有账号就登录）就进了这本账。7 天内有效，只能用一次。</p>
-    ${rolePick('inv-role', assignable(), 'clerk')}
+    ${rolePick('inv-role', assignable(), 'cashier')}
     <button class="btn primary block" id="inv-go">生成邀请链接</button>
     <div id="inv-out"></div>`, (root) => {
     $('#inv-go', root).onclick = async (e) => {
@@ -954,38 +963,19 @@ function inviteForm() {
 
 function memberForm(m) {
   if (!m) return;
-  const kinds = RECORD_KINDS.filter((k) => k !== 'settings');
   openSheet(`${m.name}的权限`, `
     <p class="small muted" style="margin-top:0">${esc(m.phone)} · ${fmtDay(m.joinedAt)}加入</p>
-    <div class="lbl">身份</div>
     ${rolePick('m-role', assignable(), m.role)}
-    <div id="m-custom">
-      <div class="lbl">能记哪些 <span class="tip">可以在身份的基础上单独调</span></div>
-      <div class="perm-grid">${kinds.map((k) => `<label><input type="checkbox" data-k="${k}">${KIND_LABEL[k]}</label>`).join('')}
-        <label><input type="checkbox" id="m-others">能改别人记的</label></div>
-    </div>
     <button class="btn primary block" id="m-save">保存</button>
     <div class="btn-row" style="margin-top:8px"><button class="btn" id="m-reset">重置密码</button><button class="btn danger" id="m-remove">移出账本</button></div>
-    <p class="small muted">保存后服务器上马上生效；对方重新打开以后，页面上的按钮也跟着变。</p>`, (root) => {
-    const role = () => root.querySelector('[name=m-role]:checked').value;
-    const fill = (p) => {
-      root.querySelectorAll('[data-k]').forEach((c) => (c.checked = p.write.includes(c.dataset.k)));
-      $('#m-others', root).checked = p.editOthers;
-      $('#m-custom', root).hidden = role() === 'admin';
-    };
-    fill(m.perms);
-    root.querySelectorAll('[name=m-role]').forEach((r) => (r.onchange = () => fill(effectivePerms(role()))));
+    <p class="small muted">保存后服务器上马上生效；对方下次打开时，他手机上的账会按新的身份重新下载。</p>`, (root) => {
     $('#m-save', root).onclick = async (e) => {
-      const r = role();
-      const write = [...root.querySelectorAll('[data-k]:checked')].map((c) => c.dataset.k);
-      const editOthers = $('#m-others', root).checked;
-      const preset = effectivePerms(r);
-      const same = preset.write.filter((k) => k !== 'settings').sort().join() === [...write].sort().join() && preset.editOthers === editOthers;
+      const r = root.querySelector('[name=m-role]:checked').value;
       e.target.disabled = true;
       try {
-        await api(`/l/${LEDGER.id}/members/${m.id}`, { method: 'PATCH', body: { role: r, perms: r === 'admin' || same ? null : { write, editOthers } } });
+        await api(`/l/${LEDGER.id}/members/${m.id}`, { method: 'PATCH', body: { role: r } });
         closeSheet();
-        toast(`${m.name}的权限已改`);
+        toast(`${m.name}现在是「${ROLES[r].label}」`);
         loadMembers();
       } catch (err) { toast(err.message); e.target.disabled = false; }
     };
@@ -1004,6 +994,83 @@ function memberForm(m) {
         toast(`已把${m.name}移出`);
         loadMembers();
       } catch (err) { toast(err.message); }
+    };
+  });
+}
+
+// ---------- 只记收付款的人看到的 ----------
+function renderMine() {
+  const isIn = seg.cash !== 'out';
+  const list = isIn ? state.receipts : (state.payments || []);
+  const items = [...list].sort(byDateDesc).map((r) => ({ date: r.date, html: `
+    <li class="item" data-edit="${isIn ? 'receipt' : 'payment'}" data-id="${esc(r.id)}">
+      <div class="l"><div class="t">${esc(isIn ? r.customer : r.supplier)} ${acctPill(r.account)}</div>
+        <div class="s">${r.note ? esc(r.note) : isIn ? '回款' : '付上游'}${r._s == null ? ' · <span style="color:var(--warn)">还没传上去</span>' : ''}</div></div>
+      <div class="r"><div class="amt num ${isIn ? 'in' : ''}">${isIn ? '+' : '−'}${fmt(toCents(r.amount))}</div><div class="s">${isIn ? '到账' : '打出'}</div></div>
+    </li>` }));
+  const sum = list.reduce((t, r) => t + toCents(r.amount), 0);
+  const page = $('#page-receipt');
+  page.innerHTML = `
+    <header class="hdr"><div><h1>收付款</h1><p class="sub">${esc(LEDGER.name)} · ${esc(ME.name)}（只记收付款）</p></div><span data-sync>${syncPill()}</span></header>
+    <div class="quick two"><button class="btn" data-act="receipt">${icon('cash')}记回款</button><button class="btn" data-act="payment">${icon('pay')}付上游</button></div>
+    ${segCtl('cash', [['in', '我记的回款'], ['out', '我记的付款']])}
+    <div class="card"><h3>${isIn ? '我记的回款' : '我记的付上游'} <span class="muted">${list.length} 笔 · 共 ${y(sum)}</span></h3>
+      ${recordSearch(items.length)}<ul class="list" data-records>${items.length ? groupByDate(items) : `<li class="empty">还没记过${isIn ? '回款' : '付款'}</li>`}</ul></div>
+    <p class="small muted">你只看得到自己记的回款和付款。核销到哪几批货由系统按最早的先核销，老板那边看得到，也可以调。</p>`;
+  const q = page.querySelector('#rec-q');
+  if (q) q.oninput = () => { recordQuery = q.value; applyRecordSearch(page); };
+  applyRecordSearch(page);
+}
+
+function renderSettingsOwn() {
+  $('#page-settings').innerHTML = `
+    <header class="hdr"><div><h1>设置</h1><p class="sub">账号</p></div><span data-sync>${syncPill()}</span></header>
+    ${accountCard()}
+    <div class="card"><h3>你在这本账里能做什么</h3>
+      <p class="small" style="margin:0">「只记收付款」：能记回款和付上游，能改、删自己记的。只看得到自己记的这些；销售、进货、库存、价目表、两个账户的钱和别人记的都看不到。</p></div>
+    ${installCard()}`;
+  wireTeam();
+  if ($('#install')) $('#install').onclick = async () => { installEvt?.prompt(); installEvt = null; };
+}
+
+// 只记收付款的人记回款 / 付上游：只填钱的事，核销到哪几批货由服务器按先进先出办
+function moneyForm(kind, rec) {
+  const isIn = kind === 'receipts';
+  let account = rec?.account || (isIn ? ACCOUNT.COMPANY : ACCOUNT.PERSONAL);
+  const party = rec ? (isIn ? rec.customer : rec.supplier) : '';
+  openSheet(rec ? (isIn ? '改回款' : '改付款') : (isIn ? '记回款' : '付上游'), `
+    <div class="f"><label>日期</label><input class="inp" type="date" id="f-date" value="${esc(rec?.date || today())}"></div>
+    <div class="f"><label for="f-party">${isIn ? '哪家回的款' : '付给哪家上游'}</label>${pickerField('f-party', isIn ? 'customers' : 'suppliers', party, { placeholder: isIn ? '选下游公司' : '选上游厂家' })}</div>
+    <div class="f"><label>${isIn ? '回到哪个账户' : '从哪个账户打出'}</label>
+      <div class="acct">
+        <button type="button" data-v="company"><b>公司账户</b><small>${isIn ? '回到公司的' : '从公司账上付'}</small></button>
+        <button type="button" data-v="personal"><b>个人账户</b><small>${isIn ? '回到个人卡上的' : '从个人卡上付'}</small></button>
+      </div></div>
+    <div class="f"><label for="f-amt">${isIn ? '实际到账金额（元）' : '打出去的金额（元）'}</label><input class="inp" type="number" inputmode="decimal" step="0.01" id="f-amt" value="${rec?.amount ?? ''}" placeholder="银行里看到的数"></div>
+    <div class="f"><label>备注 <span class="tip">选填</span></label><input class="inp" id="f-note" value="${esc(rec?.note || '')}" placeholder="${isIn ? '流水号、对方户名…' : '转账单号…'}"></div>
+    <p class="small muted">核销到哪几批货由系统按最早的先核销，老板那边看得到，也可以调。</p>
+    <button class="btn primary block" id="f-save">保存</button>${delBtn(rec)}`, (root) => {
+    wirePickers(root);
+    const paintAcct = () => root.querySelectorAll('.acct button').forEach((b) => b.classList.toggle('on', b.dataset.v === account));
+    root.querySelectorAll('.acct button').forEach((b) => (b.onclick = () => { account = b.dataset.v; sheetDirty = true; paintAcct(); }));
+    paintAcct();
+    $('#f-save', root).onclick = () => {
+      const date = $('#f-date', root).value;
+      const who = $('#f-party', root).value.trim();
+      const amount = num(root, '#f-amt');
+      if (!date || !who) return toast(`日期和${isIn ? '哪家回的' : '付给哪家'}要填`);
+      if (!(amount > 0)) return toast('金额要填');
+      const added = commitPickers(root);
+      const r = {
+        ...(rec || {}), id: rec?.id || uid(), date, [isIn ? 'customer' : 'supplier']: who, account,
+        amount: Math.round(amount * 100) / 100, note: $('#f-note', root).value.trim(), allocations: [],
+      };
+      upsert(state[kind], r);
+      save(); closeSheet();
+      toast(`${rec ? '已改好' : isIn ? '已记回款' : '已记付款'}${addedNote(added)}`);
+    };
+    if (rec) $('#f-del', root).onclick = async () => {
+      if (await ask(`删除这笔${isIn ? '回款' : '付款'}？`, '删除', true)) { remove(kind, rec.id); save(); closeSheet(); }
     };
   });
 }
@@ -1076,6 +1143,7 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (!demoMode && !canEdit(kind, rec)) {
       return toast(can(kind) ? `这笔是${memberName(rec?._by) || '别人'}记的，你只能改自己记的` : `你在这本账里是「${ROLES[PERMS.role]?.label}」，只能看不能改${KIND_LABEL[kind]}`);
     }
+    if (OWN && (edit === 'receipt' || edit === 'payment')) return moneyForm(kind, rec);
     if (edit === 'sale') return saleForm(rec);
     if (edit === 'purchase') return purchaseForm(rec);
     if (edit === 'receipt') return receiptForm(rec);
@@ -1086,6 +1154,7 @@ document.getElementById('app').addEventListener('click', (e) => {
 });
 
 function runAct(a, ds) {
+  if (OWN && (a === 'receipt' || a === 'payment')) return moneyForm(a === 'receipt' ? 'receipts' : 'payments');
   if (a === 'purchase') return purchaseForm();
   if (a === 'sale') return saleForm();
   if (a === 'receipt') return receiptForm(null, ds.customer);
@@ -1154,6 +1223,7 @@ function pickerOptions(key, extra = [], owingFirst = false, maker = '') {
   const mine = key === 'products' && maker ? makerProducts(maker) : [];
   if (mine.length) all = [...new Set([...mine, ...all.filter((n) => mine.includes(n))])];
   const info = (n) => {
+    if (OWN) return { note: '', owe: 0 }; // 只记收付款的人不该看到谁欠多少
     if (key === 'products') {
       const rows = R.products.filter((x) => x.product === n && (!maker || x.supplier === maker));
       const stock = rows.reduce((t, x) => t + x.stock, 0);

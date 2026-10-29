@@ -110,20 +110,21 @@ test('跨站请求、不是 JSON 的写请求被拦下', async () => {
 test('邀请同事：邀请码注册就进了老板的账本；用过的码不能再用', async () => {
   const boss = await signup('老板');
   const lid = boss.me.ledgers[0].id;
-  const inv = await boss.post(`/l/${lid}/invites`, { role: 'sales' });
+  const inv = await boss.post(`/l/${lid}/invites`, { role: 'cashier' });
   assert.equal(inv.status, 200);
   const info = await client().get(`/invite/${inv.body.code}`);
   assert.equal(info.body.ledger, '老板的账本');
-  assert.equal(info.body.roleLabel, '业务员');
+  assert.equal(info.body.roleLabel, '只记收付款');
   const s = await signup('小王', { invite: inv.body.code.toLowerCase() });
   assert.equal(s.me.ledgers.length, 1, '用邀请码注册的不另建账本');
   assert.equal(s.me.ledgers[0].id, lid);
-  assert.equal(s.me.ledgers[0].role, 'sales');
+  assert.equal(s.me.ledgers[0].role, 'cashier');
+  assert.equal(s.me.ledgers[0].perms.view, 'own');
   const third = client();
   const r = await third.post('/auth/register', { phone: nextPhone(), name: '小李', password: 'secret12', invite: inv.body.code });
   assert.equal(r.status, 410);
   // 已经有账号的人用邀请码加入
-  const inv2 = await boss.post(`/l/${lid}/invites`, { role: 'viewer' });
+  const inv2 = await boss.post(`/l/${lid}/invites`, { role: 'cashier' });
   const other = await signup('别家老板');
   const j = await other.post('/join', { code: inv2.body.code });
   assert.equal(j.status, 200);
@@ -134,8 +135,8 @@ test('邀请同事：邀请码注册就进了老板的账本；用过的码不�
 test('同步：两个人记同一本账，互相拉得到；删掉的也同步', async () => {
   const boss = await signup('老板A');
   const lid = boss.me.ledgers[0].id;
-  const inv = await boss.post(`/l/${lid}/invites`, { role: 'clerk' });
-  const clerk = await signup('记账员A', { invite: inv.body.code });
+  const inv = await boss.post(`/l/${lid}/invites`, { role: 'admin' });
+  const clerk = await signup('全部权限A', { invite: inv.body.code });
   const p1 = await boss.post(`/l/${lid}/push`, { changes: [rec('b1'), { kind: 'lists', key: 'customers:医院', data: {} }, { kind: 'prices', key: 'S\u0001甲', data: { supplier: 'S', product: '甲', price: 1.5 } }] });
   assert.deepEqual(p1.body.results.map((x) => x.ok), [true, true, true]);
   const p2 = await clerk.post(`/l/${lid}/push`, { changes: [rec('c1')] });
@@ -156,61 +157,135 @@ test('同步：两个人记同一本账，互相拉得到；删掉的也同步',
   assert.equal((await stranger.post(`/l/${lid}/push`, { changes: [rec('z')] })).status, 403);
 });
 
-test('权限在服务器上生效：业务员不能记进货、不能改别人的、不能改税率；只看的什么都写不进', async () => {
-  const boss = await signup('老板B');
+const receipt = (id, extra = {}) => ({ kind: 'receipts', key: id, data: { id, date: '2026-10-05', customer: 'C', account: 'company', amount: 1, allocations: [], ...extra } });
+const payment = (id, extra = {}) => ({ kind: 'payments', key: id, data: { id, date: '2026-10-05', supplier: 'S', account: 'personal', amount: 1, allocations: [], ...extra } });
+const purchase = (id, extra = {}) => ({ kind: 'purchases', key: id, data: { id, date: '2026-10-01', supplier: 'S', product: '甲', qty: 100, price: 1, ...extra } });
+
+async function bossAndCashier(tag) {
+  const boss = await signup(`老板${tag}`);
   const lid = boss.me.ledgers[0].id;
-  const s = await signup('业务员B', { invite: (await boss.post(`/l/${lid}/invites`, { role: 'sales' })).body.code });
-  const v = await signup('只看B', { invite: (await boss.post(`/l/${lid}/invites`, { role: 'viewer' })).body.code });
-  await boss.post(`/l/${lid}/push`, { changes: [rec('boss-sale')] });
-  const r = await s.post(`/l/${lid}/push`, { changes: [
-    { kind: 'purchases', key: 'p1', data: { id: 'p1', date: '2026-10-01', supplier: 'S', product: '甲', qty: 1, price: 1 } },
-    rec('boss-sale', { qty: 99 }),
-    { kind: 'sales', key: 'boss-sale', data: null },
-    { kind: 'settings', key: 'settings', data: { revenueRate: 0.5, marginRate: 0.5 } },
+  const c = await signup(`出纳${tag}`, { invite: (await boss.post(`/l/${lid}/invites`, { role: 'cashier' })).body.code });
+  return { boss, c, lid };
+}
+
+test('只记收付款：只能记回款和付上游，别的写不进；只能改自己记的', async () => {
+  const { boss, c, lid } = await bossAndCashier('B');
+  await boss.post(`/l/${lid}/push`, { changes: [rec('boss-sale'), receipt('boss-r')] });
+  const r = await c.post(`/l/${lid}/push`, { changes: [
+    purchase('p1'),
     rec('my-sale'),
+    { kind: 'prices', key: 'S\u0001甲', data: { supplier: 'S', product: '甲', price: 9 } },
+    { kind: 'settings', key: 'settings', data: { revenueRate: 0.5, marginRate: 0.5 } },
+    { kind: 'lists', key: 'products:新药', data: {} },
+    receipt('boss-r', { amount: 99 }),
+    { kind: 'receipts', key: 'boss-r', data: null },
+    { kind: 'sales', key: 'boss-sale', data: null },
+    receipt('my-r'),
+    payment('my-p'),
     { kind: 'lists', key: 'customers:新医院', data: {} },
+    { kind: 'lists', key: 'suppliers:新厂家', data: {} },
   ] });
-  assert.deepEqual(r.body.results.map((x) => x.ok ? 'ok' : x.reason), ['no-permission', 'not-yours', 'not-yours', 'no-permission', 'ok', 'ok']);
-  assert.equal(r.body.results[1].current.data.qty, 1, '拒收时带上服务器上的版本，页面好恢复');
-  // 改自己记的可以
-  assert.ok((await s.post(`/l/${lid}/push`, { changes: [rec('my-sale', { qty: 3 })] })).body.results[0].ok);
-  const rv = await v.post(`/l/${lid}/push`, { changes: [rec('v1'), { kind: 'lists', key: 'customers:X', data: {} }] });
-  assert.deepEqual(rv.body.results.map((x) => x.reason), ['no-permission', 'no-permission']);
-  // 老板单独给业务员加上「能改别人的」
-  await boss.patch(`/l/${lid}/members/${s.me.user.id}`, { role: 'sales', perms: { write: ['sales', 'receipts'], editOthers: true } });
-  assert.ok((await s.post(`/l/${lid}/push`, { changes: [rec('boss-sale', { qty: 2 })] })).body.results[0].ok);
-  // 坏数据
-  const bad = await boss.post(`/l/${lid}/push`, { changes: [{ kind: 'sales', key: 'k', data: { id: 'other' } }, { kind: 'nope', key: 'x', data: {} }, { kind: 'settings', key: 'settings', data: { revenueRate: 2, marginRate: 0 } }] });
-  assert.deepEqual(bad.body.results.map((x) => x.reason), ['bad-data', 'bad-kind', 'bad-data']);
+  assert.deepEqual(r.body.results.map((x) => (x.ok ? 'ok' : x.reason)), [
+    'no-permission', 'no-permission', 'no-permission', 'no-permission', 'no-permission',
+    'not-yours', 'not-yours', 'no-permission', 'ok', 'ok', 'ok', 'ok']);
+  // 拒收时不把别人的单据内容带回去
+  assert.ok(r.body.results.slice(0, 8).every((x) => x.current === null), '拒收结果里不能有别人的数据');
+  assert.ok((await c.post(`/l/${lid}/push`, { changes: [receipt('my-r', { amount: 2 })] })).body.results[0].ok, '改自己记的可以');
+  assert.ok((await c.post(`/l/${lid}/push`, { changes: [{ kind: 'payments', key: 'my-p', data: null }] })).body.results[0].ok, '删自己记的可以');
 });
 
-test('成员管理：只有老板 / 管理员能管；老板不能被改；管理员只能老板任免；移出后拉不到账', async () => {
-  const boss = await signup('老板C');
+test('只记收付款：拉下来的只有自己记的回款付款 + 公司名厂家名，看不到核销到哪几批', async () => {
+  const { boss, c, lid } = await bossAndCashier('C');
+  await boss.post(`/l/${lid}/push`, { changes: [
+    purchase('p1'), rec('s1', { qty: 10, price: 2 }), receipt('boss-r'), payment('boss-p'),
+    { kind: 'prices', key: 'S\u0001甲', data: { supplier: 'S', product: '甲', price: 2 } },
+    { kind: 'settings', key: 'settings', data: { revenueRate: 0.01, marginRate: 0.13 } },
+    { kind: 'lists', key: 'customers:C', data: {} }, { kind: 'lists', key: 'suppliers:S', data: {} }, { kind: 'lists', key: 'products:甲', data: {} },
+    { kind: 'withdrawals', key: 'w1', data: { id: 'w1', date: '2026-10-06', net: 1 } },
+  ] });
+  await c.post(`/l/${lid}/push`, { changes: [receipt('my-r', { amount: 5 })] });
+  const all = (await c.get(`/l/${lid}/pull?since=0`)).body;
+  assert.equal(all.view, 'own');
+  assert.deepEqual(all.changes.map((x) => `${x.kind}:${x.key}`).sort(), ['lists:customers:C', 'lists:suppliers:S', 'receipts:my-r']);
+  assert.equal(all.changes.find((x) => x.key === 'my-r').data.allocations, undefined, '核销明细不发给他');
+  // 老板之后记的、改的，他都收不到；老板删了他记的，他收得到删除
+  const seq = all.seq;
+  await boss.post(`/l/${lid}/push`, { changes: [rec('s2'), { kind: 'receipts', key: 'my-r', data: null }] });
+  const inc = (await c.get(`/l/${lid}/pull?since=${seq}`)).body;
+  assert.deepEqual(inc.changes.map((x) => [x.key, x.data]), [['my-r', null]]);
+  // 成员列表只有自己；操作记录、邀请都看不到
+  const ms = (await c.get(`/l/${lid}/members`)).body;
+  assert.deepEqual(ms.members.map((m) => m.id), [c.me.user.id]);
+  assert.deepEqual(ms.former, []);
+  assert.equal((await c.get(`/l/${lid}/log`)).status, 403);
+  assert.equal((await c.get(`/l/${lid}/invites`)).status, 403);
+  // 老板拉得到全部，包括核销
+  const b = (await boss.get(`/l/${lid}/pull?since=0`)).body;
+  assert.equal(b.view, 'all');
+  assert.ok(b.changes.some((x) => x.key === 's1'));
+});
+
+test('只记收付款记的回款 / 付款：服务器按先进先出核销；只改备注不动老板调过的核销', async () => {
+  const { boss, c, lid } = await bossAndCashier('D');
+  await boss.post(`/l/${lid}/push`, { changes: [
+    purchase('p1', { qty: 100, price: 1, date: '2026-09-01' }), purchase('p2', { qty: 100, price: 1, date: '2026-09-02' }),
+    rec('s1', { qty: 100, price: 1.5, date: '2026-09-03', lots: [{ purchaseId: 'p1', qty: 100 }] }),
+    rec('s2', { qty: 100, price: 1.5, date: '2026-09-04', lots: [{ purchaseId: 'p2', qty: 100 }] }),
+  ] });
+  await c.post(`/l/${lid}/push`, { changes: [
+    receipt('r1', { amount: 200 }),                                     // 回到公司 200：s1 回清 150，s2 回 50
+    receipt('r2', { amount: 50, account: 'personal' }),                 // 回到个人 50（扣完税的）：接着核销 s2
+    payment('pay1', { amount: 150 }),                                    // 付上游 150：p1 付清，p2 付 50
+  ] });
+  const get = async (kind, key) => (await boss.get(`/l/${lid}/pull?since=0`)).body.changes.find((x) => x.kind === kind && x.key === key).data;
+  assert.deepEqual((await get('receipts', 'r1')).allocations, [{ saleId: 's1', amount: 150 }, { saleId: 's2', amount: 50 }]);
+  const r2 = await get('receipts', 'r2');
+  assert.equal(r2.allocations[0].saleId, 's2');
+  assert.ok(r2.allocations[0].amount > 50, '个人账户到账是扣完税的，核销的应收要比到账多');
+  assert.deepEqual((await get('payments', 'pay1')).allocations, [{ purchaseId: 'p1', amount: 100 }, { purchaseId: 'p2', amount: 50 }]);
+  // 他传上来的核销一律不算（s1 已经回清，服务器按先进先出核到还欠着的 s2）
+  await c.post(`/l/${lid}/push`, { changes: [receipt('r3', { amount: 1, allocations: [{ saleId: 's1', amount: 1 }] })] });
+  assert.deepEqual((await get('receipts', 'r3')).allocations, [{ saleId: 's2', amount: 1 }]);
+  // 老板手动把 r1 全核到 s2；出纳只改备注，核销不变；出纳改金额，重新按先进先出
+  await boss.post(`/l/${lid}/push`, { changes: [receipt('r1', { amount: 200, allocations: [{ saleId: 's2', amount: 100 }, { saleId: 's1', amount: 100 }] })] });
+  await c.post(`/l/${lid}/push`, { changes: [receipt('r1', { amount: 200, note: '补个备注' })] });
+  assert.deepEqual((await get('receipts', 'r1')).allocations, [{ saleId: 's2', amount: 100 }, { saleId: 's1', amount: 100 }]);
+  await c.post(`/l/${lid}/push`, { changes: [receipt('r1', { amount: 10, note: '补个备注' })] });
+  assert.equal((await get('receipts', 'r1')).allocations.reduce((t, a) => t + a.amount, 0), 10);
+});
+
+test('身份改了：拉取时告诉页面能看的范围变了', async () => {
+  const { boss, c, lid } = await bossAndCashier('E');
+  await boss.post(`/l/${lid}/push`, { changes: [rec('s1')] });
+  assert.equal((await c.get(`/l/${lid}/pull?since=0`)).body.changes.length, 0);
+  await boss.patch(`/l/${lid}/members/${c.me.user.id}`, { role: 'admin' });
+  const after = (await c.get(`/l/${lid}/pull?since=0`)).body;
+  assert.equal(after.view, 'all');
+  assert.ok(after.changes.some((x) => x.key === 's1'));
+});
+
+test('成员管理：只有全部权限的人能管；老板不能被改；全部权限只能老板给；移出后拉不到账', async () => {
+  const boss = await signup('老板F');
   const lid = boss.me.ledgers[0].id;
-  const adm = await signup('管理员C', { invite: (await boss.post(`/l/${lid}/invites`, { role: 'admin' })).body.code });
-  const clerk = await signup('记账员C', { invite: (await adm.post(`/l/${lid}/invites`, { role: 'clerk' })).body.code });
-  assert.equal((await adm.post(`/l/${lid}/invites`, { role: 'admin' })).status, 403);
-  assert.equal((await clerk.post(`/l/${lid}/invites`, { role: 'viewer' })).status, 403);
-  assert.equal((await clerk.get(`/l/${lid}/log`)).status, 403);
-  const members = (await clerk.get(`/l/${lid}/members`)).body.members;
-  assert.equal(members.length, 3);
-  assert.match(members[0].phone, /\*\*\*\*/, '普通成员看不到别人完整手机号');
-  assert.equal((await adm.patch(`/l/${lid}/members/${boss.me.user.id}`, { role: 'viewer' })).status, 403);
+  const adm = await signup('全部权限F', { invite: (await boss.post(`/l/${lid}/invites`, { role: 'admin' })).body.code });
+  const c = await signup('出纳F', { invite: (await adm.post(`/l/${lid}/invites`, { role: 'cashier' })).body.code });
+  assert.equal((await adm.post(`/l/${lid}/invites`, { role: 'admin' })).status, 403, '全部权限只能老板给');
+  assert.equal((await c.post(`/l/${lid}/invites`, { role: 'cashier' })).status, 403);
+  assert.equal((await adm.get(`/l/${lid}/members`)).body.members.length, 3);
+  assert.equal((await adm.patch(`/l/${lid}/members/${boss.me.user.id}`, { role: 'cashier' })).status, 403);
   assert.equal((await adm.del(`/l/${lid}/members/${boss.me.user.id}`)).status, 403);
-  assert.equal((await adm.patch(`/l/${lid}/members/${clerk.me.user.id}`, { role: 'admin' })).status, 403);
-  assert.equal((await adm.patch(`/l/${lid}/members/${clerk.me.user.id}`, { role: 'viewer' })).status, 200);
-  assert.equal((await clerk.post(`/l/${lid}/push`, { changes: [rec('x')] })).body.results[0].reason, 'no-permission');
+  assert.equal((await adm.patch(`/l/${lid}/members/${c.me.user.id}`, { role: 'admin' })).status, 403);
+  assert.equal((await boss.patch(`/l/${lid}/members/${adm.me.user.id}`, { role: 'cashier' })).status, 200);
+  assert.equal((await adm.post(`/l/${lid}/push`, { changes: [rec('x')] })).body.results[0].reason, 'no-permission', '降成只记收付款以后马上不能记销售');
   // 重置密码：旧密码不能用了，临时密码能登
-  const reset = await adm.post(`/l/${lid}/members/${clerk.me.user.id}/reset-password`);
+  const reset = await boss.post(`/l/${lid}/members/${c.me.user.id}/reset-password`);
   assert.equal(reset.status, 200);
-  assert.equal((await clerk.get('/me')).status, 401, '重置后原来的登录失效');
+  assert.equal((await c.get('/me')).status, 401, '重置后原来的登录失效');
   const c2 = client();
-  assert.equal((await c2.post('/auth/login', { phone: clerk.phone, password: reset.body.password })).status, 200);
-  assert.equal((await adm.del(`/l/${lid}/members/${clerk.me.user.id}`)).status, 200);
+  assert.equal((await c2.post('/auth/login', { phone: c.phone, password: reset.body.password })).status, 200);
+  assert.equal((await boss.del(`/l/${lid}/members/${c.me.user.id}`)).status, 200);
   assert.equal((await c2.get(`/l/${lid}/pull?since=0`)).status, 403);
-  // 操作记录
-  const log = (await boss.get(`/l/${lid}/log`)).body.log;
-  assert.ok(Array.isArray(log));
+  assert.ok(Array.isArray((await boss.get(`/l/${lid}/log`)).body.log));
 });
 
 test('重置密码不能用来登进别人的账本', async () => {
@@ -219,7 +294,7 @@ test('重置密码不能用来登进别人的账本', async () => {
   const lidA = a.me.ledgers[0].id;
   const lidB = b.me.ledgers[0].id;
   // E 也在 D 的账本里当记账员
-  await b.post('/join', { code: (await a.post(`/l/${lidA}/invites`, { role: 'clerk' })).body.code });
+  await b.post('/join', { code: (await a.post(`/l/${lidA}/invites`, { role: 'cashier' })).body.code });
   const r = await a.post(`/l/${lidA}/members/${b.me.user.id}/reset-password`);
   assert.equal(r.status, 403);
   assert.ok(lidB);

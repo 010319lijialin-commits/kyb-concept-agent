@@ -88,12 +88,13 @@ export const cache = kv;
 export function createServerStore({ userId, ledgerId, getState, setState, onStatus, onGone, onRejected }) {
   const key = `srv:${userId}:${ledgerId}`;
   let seq = 0;
+  let view = null; // 服务器按什么范围发的（'all' 整本 / 'own' 只有自己记的）
   let syncing = false, wanted = false, connected = false, retry = null, debounce = null;
   let writeQ = Promise.resolve();
   const status = (s) => { try { onStatus?.(s); } catch { /* 状态显示失败不影响保存 */ } };
 
   // 每次都存「当时最新的账 + 同步到哪了」
-  const persist = () => (writeQ = writeQ.then(() => kv.set(key, { state: getState(), seq })).catch(() => status('local-failed')));
+  const persist = () => (writeQ = writeQ.then(() => kv.set(key, { state: getState(), seq, view })).catch(() => status('local-failed')));
 
   async function syncOnce() {
     // 1) 本机记的先传上去
@@ -111,7 +112,10 @@ export function createServerStore({ userId, ledgerId, getState, setState, onStat
     // 2) 别人记的拉下来
     for (let page = 0; page < 1000; page++) {
       const r = await api(`/l/${ledgerId}/pull?since=${seq}`);
-      if (r.reset) { setState(keepPendingOnly(getState())); seq = 0; continue; }
+      // 身份变了（比如从全部权限改成只记收付款）：本机的账清掉，按新的范围从头拉
+      const viewChanged = r.view && view && r.view !== view;
+      if (r.view) view = r.view;
+      if (r.reset || viewChanged) { setState(keepPendingOnly(getState())); seq = 0; await persist(); continue; }
       if (r.changes.length) setState(applyServerChanges(getState(), r.changes));
       seq = r.seq;
       if (!r.more) break;
@@ -149,6 +153,7 @@ export function createServerStore({ userId, ledgerId, getState, setState, onStat
     async load() {
       const c = await kv.get(key).catch(() => null);
       seq = c?.seq || 0;
+      view = c?.view || null;
       return c?.state || null;
     },
     async connect() {

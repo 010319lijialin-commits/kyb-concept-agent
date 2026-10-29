@@ -60,7 +60,7 @@ export async function showAuth({ invite = '' } = {}) {
     $('#a-go').textContent = mode === 'login' ? (inv.ok ? '登录并加入' : '登录') : inv.ok ? '注册并加入' : '注册';
     $('#a-pw').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
     $('.auth-note').textContent = mode === 'login'
-      ? '忘了密码：找账本的老板或管理员在「设置 → 成员」里重置。'
+      ? '忘了密码：找账本的老板在「设置 → 成员」里重置。'
       : inv.ok ? '注册后直接进邀请你的那本账。' : '注册后会给你建一本自己的账本，可以再邀请同事一起记。';
     $('.auth-err').textContent = '';
   };

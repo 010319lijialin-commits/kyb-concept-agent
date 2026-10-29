@@ -3,8 +3,10 @@
 import express from 'express';
 import { openDb, tx } from './db.js';
 import { hashPassword, checkPassword, newToken, tokenHash, newId, newCode, tempPassword, rateLimiter } from './auth.js';
-import { sanitize, LIST_KEYS, COLLECTIONS, normSettings } from '../../public/ledger/core.js';
-import { ROLES, RECORD_KINDS, effectivePerms, canWrite } from '../../public/ledger/roles.js';
+import {
+  sanitize, LIST_KEYS, COLLECTIONS, normSettings, emptyState, ACCOUNT, saleRates, autoAllocate, autoAllocateNet, autoAllocatePayment,
+} from '../../public/ledger/core.js';
+import { ROLES, OWN_LISTS, effectivePerms, canWrite } from '../../public/ledger/roles.js';
 
 const COOKIE = 'jxz_sid';
 const SESSION_DAYS = 60;
@@ -12,6 +14,11 @@ const INVITE_DAYS = 7;
 const MAX_CHANGES = 500;     // 一次最多传这么多笔，多了页面会分几次传
 const PULL_PAGE = 2000;
 const MAX_RECORD = 64 * 1024;
+// 只记收付款的人：只拿得到自己记的这两种单据
+const OWN_KINDS = ['receipts', 'payments'];
+// 这几项没变，就保留原来的核销（老板手动调过的不被冲掉）
+const MONEY = { receipts: ['date', 'customer', 'account', 'amount'], payments: ['date', 'supplier', 'account', 'amount'] };
+const noAlloc = ({ allocations, ...x }) => x;
 
 class HttpError extends Error {
   constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; }
@@ -123,6 +130,11 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
       ON CONFLICT (ledger_id, kind, key) DO UPDATE SET data = excluded.data, seq = excluded.seq, created_by = excluded.created_by,
       updated_by = excluded.updated_by, updated_at = excluded.updated_at`),
     pull: q('SELECT kind, key, data, seq, created_by, updated_at FROM records WHERE ledger_id = ? AND seq > ? ORDER BY seq LIMIT ?'),
+    pullOwn: q(`SELECT kind, key, data, seq, created_by, updated_at FROM records WHERE ledger_id = ? AND seq > ?
+      AND ((kind IN (${OWN_KINDS.map((k) => `'${k}'`).join(', ')}) AND created_by = ?)
+        OR (kind = 'lists' AND (${OWN_LISTS.map((k) => `key LIKE '${k}:%'`).join(' OR ')})))
+      ORDER BY seq LIMIT ?`),
+    allRecords: q("SELECT kind, data FROM records WHERE ledger_id = ? AND data IS NOT NULL AND kind != 'lists'"),
     addLog: q('INSERT INTO log (ledger_id, user_id, at, kind, key, action, summary) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     log: q(`SELECT g.id, g.at, g.kind, g.key, g.action, g.summary, u.name AS user_name FROM log g LEFT JOIN users u ON u.id = g.user_id
       WHERE g.ledger_id = ? AND g.id < ? ORDER BY g.id DESC LIMIT ?`),
@@ -173,11 +185,11 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
     const ledger = S.ledger.get(req.params.lid);
     const m = ledger && S.member.get(ledger.id, u.id);
     if (!m) fail(403, '你不在这个账本里了');
-    return { u, ledger, m, perms: effectivePerms(m.role, m.perms ? JSON.parse(m.perms) : null) };
+    return { u, ledger, m, perms: effectivePerms(m.role) };
   };
   const needManager = (req) => {
     const ctx = needMember(req);
-    if (!ctx.perms.manage) fail(403, '只有老板和管理员能管成员');
+    if (!ctx.perms.manage) fail(403, '只有全部权限的人能管成员');
     return ctx;
   };
 
@@ -186,16 +198,12 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
     if (p.length < 6 || p.length > 64) fail(400, '密码要 6 到 64 位');
     return p;
   };
-  const cleanPerms = (perms) => (perms && typeof perms === 'object'
-    ? JSON.stringify({ write: RECORD_KINDS.filter((k) => k !== 'settings' && Array.isArray(perms.write) && perms.write.includes(k)), editOthers: Boolean(perms.editOthers) })
-    : null);
-
   function me(user) {
     return {
       user: { id: user.id, phone: user.login, name: user.name },
       ledgers: S.myLedgers.all(user.id).map((l) => ({
         id: l.id, name: l.name, role: l.role, roleLabel: ROLES[l.role]?.label || l.role,
-        perms: effectivePerms(l.role, l.perms ? JSON.parse(l.perms) : null),
+        perms: effectivePerms(l.role),
         owner: { id: l.owner_id, name: l.owner_name }, memberCount: l.member_count,
       })),
     };
@@ -306,14 +314,15 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
   });
 
   r.get('/l/:lid/members', (req, res) => {
-    const { ledger, perms } = needMember(req);
+    const { ledger, perms, u } = needMember(req);
+    const own = perms.view === 'own'; // 只记收付款的人只看得到自己
     res.json({
-      members: S.members.all(ledger.id).map((m) => ({
+      members: S.members.all(ledger.id).filter((m) => !own || m.user_id === u.id).map((m) => ({
         id: m.user_id, name: m.name, role: m.role, roleLabel: ROLES[m.role]?.label || m.role,
         phone: perms.manage ? m.login : maskPhone(m.login),
-        perms: effectivePerms(m.role, m.perms ? JSON.parse(m.perms) : null), joinedAt: m.joined_at,
+        perms: effectivePerms(m.role), joinedAt: m.joined_at,
       })),
-      former: S.former.all(ledger.id, ledger.id).map((u) => ({ id: u.id, name: u.name })),
+      former: own ? [] : S.former.all(ledger.id, ledger.id).map((x) => ({ id: x.id, name: x.name })),
     });
   });
 
@@ -321,9 +330,9 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
     const { ledger, m } = needManager(req);
     const role = String(req.body.role || '');
     if (!ROLES[role] || role === 'owner') fail(400, '选一个身份');
-    if (role === 'admin' && m.role !== 'owner') fail(403, '只有老板能邀请管理员');
+    if (role === 'admin' && m.role !== 'owner') fail(403, '只有老板能邀请全部权限的人');
     const code = newCode();
-    S.addInvite.run(code, ledger.id, role, role === 'admin' ? null : cleanPerms(req.body.perms), m.user_id, now(), now() + INVITE_DAYS * 86400e3);
+    S.addInvite.run(code, ledger.id, role, null, m.user_id, now(), now() + INVITE_DAYS * 86400e3);
     res.json({ code, expiresAt: now() + INVITE_DAYS * 86400e3 });
   });
 
@@ -338,12 +347,12 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
     res.json({ ok: true });
   });
 
-  // 改成员身份 / 单独勾的权限。老板不能被改；管理员只有老板能任免
+  // 改成员身份。老板不能被改；「全部权限」只有老板能给、能改
   function target(req, ctx) {
     const t = S.member.get(ctx.ledger.id, req.params.uid);
     if (!t) fail(404, '这个人不在账本里');
     if (t.role === 'owner') fail(403, '老板的身份不能改');
-    if (t.role === 'admin' && ctx.m.role !== 'owner') fail(403, '只有老板能改管理员');
+    if (t.role === 'admin' && ctx.m.role !== 'owner') fail(403, '只有老板能改全部权限的人');
     return t;
   }
   r.patch('/l/:lid/members/:uid', (req, res) => {
@@ -351,8 +360,8 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
     const t = target(req, ctx);
     const role = String(req.body.role || t.role);
     if (!ROLES[role] || role === 'owner') fail(400, '选一个身份');
-    if (role === 'admin' && ctx.m.role !== 'owner') fail(403, '只有老板能设管理员');
-    S.setMember.run(role, role === 'admin' ? null : cleanPerms(req.body.perms), ctx.ledger.id, t.user_id);
+    if (role === 'admin' && ctx.m.role !== 'owner') fail(403, '只有老板能给全部权限');
+    S.setMember.run(role, null, ctx.ledger.id, t.user_id);
     res.json({ ok: true });
   });
 
@@ -371,13 +380,13 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
     res.json({ ok: true });
   });
 
-  // 成员忘了密码：老板 / 管理员给一个临时密码。这个人如果还在别人的账本里，就不能这样重置（免得能登进别人的账本）
+  // 成员忘了密码：全部权限的人给一个临时密码。这个人如果还在别人的账本里，就不能这样重置（免得能登进别人的账本）
   r.post('/l/:lid/members/:uid/reset-password', h(async (req, res) => {
     const ctx = needManager(req);
     const t = target(req, ctx);
     for (const { ledger_id } of S.memberships.all(t.user_id)) {
       const mine = S.member.get(ledger_id, ctx.u.id);
-      const p = mine && effectivePerms(mine.role, mine.perms ? JSON.parse(mine.perms) : null);
+      const p = mine && effectivePerms(mine.role);
       if (!p?.manage) fail(403, '这个人还在别的账本里，只能让他自己改密码，或者在服务器上重置');
     }
     const pw = tempPassword();
@@ -387,24 +396,60 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
   }));
 
   // ---------- 同步 ----------
+  // view：这个人看得到多少（'all' / 'own'）。身份变了，页面会把本机的账清掉按新的范围重新拉
   r.get('/l/:lid/pull', (req, res) => {
-    const { ledger } = needMember(req);
+    const { ledger, perms, u } = needMember(req);
+    const own = perms.view === 'own';
     const since = Math.max(0, parseInt(req.query.since, 10) || 0);
-    if (since > ledger.seq) return res.json({ reset: true, seq: ledger.seq, changes: [] });
-    const rows = S.pull.all(ledger.id, since, PULL_PAGE + 1);
+    if (since > ledger.seq) return res.json({ reset: true, seq: ledger.seq, view: perms.view, changes: [] });
+    // 只记收付款的人：只发他自己记的回款、付款（不带核销到哪几批货），加上公司名、厂家名
+    const rows = own ? S.pullOwn.all(ledger.id, since, u.id, PULL_PAGE + 1) : S.pull.all(ledger.id, since, PULL_PAGE + 1);
     const more = rows.length > PULL_PAGE;
     const page = rows.slice(0, PULL_PAGE);
     res.json({
       seq: more ? page.at(-1).seq : ledger.seq,
       more,
-      changes: page.map((x) => ({ kind: x.kind, key: x.key, data: x.data == null ? null : JSON.parse(x.data), seq: x.seq, by: x.created_by, t: x.updated_at })),
+      view: perms.view,
+      changes: page.map((x) => {
+        let data = x.data == null ? null : JSON.parse(x.data);
+        if (own && data && OWN_KINDS.includes(x.kind)) data = noAlloc(data);
+        return { kind: x.kind, key: x.key, data, seq: x.seq, by: x.created_by, t: x.updated_at };
+      }),
     });
   });
+
+  // 整本账（核销要用）
+  function loadState(lid) {
+    const st = emptyState();
+    for (const row of S.allRecords.all(lid)) {
+      const d = JSON.parse(row.data);
+      if (COLLECTIONS.includes(row.kind)) st[row.kind].push(d);
+      else if (row.kind === 'prices') st.prices.push(d);
+      else if (row.kind === 'settings') st.settings = d;
+    }
+    return st;
+  }
 
   r.post('/l/:lid/push', (req, res) => {
     const { ledger, u, perms } = needMember(req);
     const changes = req.body.changes;
     if (!Array.isArray(changes) || changes.length > MAX_CHANGES) fail(400, `一次最多传 ${MAX_CHANGES} 笔`);
+    const own = perms.view === 'own';
+    // 只记收付款的人看不到销售和进货：他记的回款、付款由服务器按先进先出核销（老板之后可以改）
+    let state = null, rates = null;
+    const withAllocations = (kind, rec, prev) => {
+      if (prev && MONEY[kind].every((f) => prev[f] === rec[f])) return { ...rec, allocations: prev.allocations || [] };
+      state ||= loadState(ledger.id);
+      if (kind === 'payments') return { ...rec, allocations: autoAllocatePayment(state, rec.supplier, rec.amount, rec.id) };
+      rates ||= saleRates(state);
+      const fn = rec.account === ACCOUNT.PERSONAL ? autoAllocateNet : autoAllocate;
+      return { ...rec, allocations: fn(state, rec.customer, rec.amount, rec.id, rates) };
+    };
+    const track = (kind, key, rec) => {
+      if (!state || !COLLECTIONS.includes(kind)) return;
+      state[kind] = state[kind].filter((x) => x.id !== key);
+      if (rec) state[kind].push(rec);
+    };
     const out = tx(db, () => {
       let seq = S.ledger.get(ledger.id).seq;
       const t = now();
@@ -412,11 +457,13 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
         const kind = String(ch?.kind || '');
         const key = ch?.key;
         const cur = typeof key === 'string' ? S.record.get(ledger.id, kind, key) : null;
-        const current = cur ? { data: cur.data == null ? null : JSON.parse(cur.data), seq: cur.seq, by: cur.created_by, t: cur.updated_at } : null;
+        // 拒收时带上服务器上的版本好让页面恢复；只记收付款的人只能拿到他自己记的那几笔
+        const visible = cur && (!own || (OWN_KINDS.includes(kind) && cur.created_by === u.id) || (kind === 'lists' && canWrite(perms, kind, key)));
+        const current = visible ? { data: cur.data == null ? null : (own && OWN_KINDS.includes(kind) ? noAlloc(JSON.parse(cur.data)) : JSON.parse(cur.data)), seq: cur.seq, by: cur.created_by, t: cur.updated_at } : null;
         const reject = (reason) => ({ ok: false, reason, current });
         const n = normalize(kind, key, ch?.data ?? null);
         if (n.err) return reject(n.err);
-        if (!canWrite(perms, kind)) return reject('no-permission');
+        if (!canWrite(perms, kind, key)) return reject('no-permission');
         const exists = cur && cur.data != null;
         // 别人记的单据：要有「能改别人记的」权限
         if (exists && COLLECTIONS.includes(kind) && cur.created_by !== u.id && !perms.editOthers) return reject('not-yours');
@@ -424,14 +471,21 @@ export function ledgerApi({ dataDir, now = Date.now, log = console, signupsPerHo
           if (!exists) return { ok: true, seq: cur?.seq || 0, by: cur?.created_by, t: cur?.updated_at };
           seq++;
           S.putRecord.run(ledger.id, kind, key, null, seq, cur.created_by, u.id, t);
-          if (kind !== 'lists') S.addLog.run(ledger.id, u.id, t, kind, key, 'delete', summary(kind, current.data));
+          track(kind, key, null);
+          if (kind !== 'lists') S.addLog.run(ledger.id, u.id, t, kind, key, 'delete', summary(kind, JSON.parse(cur.data)));
           return { ok: true, seq, by: cur.created_by, t };
         }
-        if (exists && cur.data === n.json) return { ok: true, seq: cur.seq, by: cur.created_by, t: cur.updated_at };
+        let json = n.json;
+        if (own && OWN_KINDS.includes(kind)) {
+          const rec = withAllocations(kind, JSON.parse(n.json), exists ? JSON.parse(cur.data) : null);
+          json = JSON.stringify(rec);
+        }
+        if (exists && cur.data === json) return { ok: true, seq: cur.seq, by: cur.created_by, t: cur.updated_at };
         seq++;
         const by = exists ? cur.created_by : u.id;
-        S.putRecord.run(ledger.id, kind, key, n.json, seq, by, u.id, t);
-        if (kind !== 'lists') S.addLog.run(ledger.id, u.id, t, kind, key, exists ? 'update' : 'create', summary(kind, JSON.parse(n.json)));
+        S.putRecord.run(ledger.id, kind, key, json, seq, by, u.id, t);
+        track(kind, key, JSON.parse(json));
+        if (kind !== 'lists') S.addLog.run(ledger.id, u.id, t, kind, key, exists ? 'update' : 'create', summary(kind, JSON.parse(json)));
         return { ok: true, seq, by, t };
       });
       S.setSeq.run(seq, ledger.id);

@@ -87,19 +87,17 @@ test('服务器恢复到旧备份：本机只留没传上去的', () => {
   assert.deepEqual(k.lists.products, ['X']);
 });
 
-test('身份：记账员只能改自己记的，业务员只能记销售回款，只看的什么都不能记', () => {
-  const clerk = effectivePerms('clerk');
-  assert.ok(canWrite(clerk, 'purchases'));
-  assert.ok(!canWrite(clerk, 'settings'));
-  assert.ok(canEditRecord(clerk, 'sales', 'me', 'me'));
-  assert.ok(!canEditRecord(clerk, 'sales', 'boss', 'me'));
-  assert.ok(canEditRecord(clerk, 'prices', 'boss', 'me'));
-  const sales = effectivePerms('sales');
-  assert.ok(canWrite(sales, 'receipts') && !canWrite(sales, 'purchases') && canWrite(sales, 'lists'));
-  const viewer = effectivePerms('viewer');
-  assert.ok(!canWrite(viewer, 'sales') && !canWrite(viewer, 'lists'));
-  const custom = effectivePerms('clerk', { write: ['sales', 'settings'], editOthers: true });
-  assert.deepEqual(custom.write, ['sales'], '税率只有老板和管理员能改');
-  assert.ok(custom.editOthers);
-  assert.ok(effectivePerms('owner', { write: [] }).write.includes('settings'), '老板的权限不能被勾掉');
+test('两种身份：全部权限什么都能记；只记收付款只能记回款付款、加公司名厂家名，只能改自己的', () => {
+  const all = effectivePerms('admin');
+  assert.ok(['purchases', 'sales', 'receipts', 'payments', 'withdrawals', 'prices', 'settings'].every((k) => canWrite(all, k)));
+  assert.equal(all.view, 'all');
+  assert.ok(canEditRecord(all, 'sales', 'boss', 'me'));
+  const c = effectivePerms('cashier');
+  assert.equal(c.view, 'own');
+  assert.ok(canWrite(c, 'receipts') && canWrite(c, 'payments'));
+  assert.ok(!canWrite(c, 'sales') && !canWrite(c, 'purchases') && !canWrite(c, 'prices') && !canWrite(c, 'settings') && !canWrite(c, 'withdrawals'));
+  assert.ok(canWrite(c, 'lists', 'customers:医院') && canWrite(c, 'lists', 'suppliers:厂') && !canWrite(c, 'lists', 'products:药'));
+  assert.ok(canEditRecord(c, 'receipts', 'me', 'me'));
+  assert.ok(!canEditRecord(c, 'receipts', 'boss', 'me'));
+  assert.equal(effectivePerms('clerk').view, 'own', '老版本的身份按最小权限算');
 });
